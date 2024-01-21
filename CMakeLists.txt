@@ -34,7 +34,14 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
   else()
     message(FATAL_ERROR "Windows with ${CMAKE_SYSTEM_PROCESSOR} processor is currently not supported.")
   endif()
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "QNX")
+  if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86_64")
+    set(RDK_STATIC_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/lib/libflexiv_rdk.x86_64-qnx800.a")
+  else()
+    message(FATAL_ERROR "QNX with ${CMAKE_SYSTEM_PROCESSOR} processor is currently not supported.")
+  endif()
 endif()
+message(STATUS "RDK_STATIC_LIBRARY: ${RDK_STATIC_LIBRARY}")
 
 # ===================================================================
 #      PROJECT DEPENDENCIES
@@ -65,6 +72,12 @@ target_link_libraries(${PROJECT_NAME} INTERFACE
   ${RDK_STATIC_LIBRARY}
   Threads::Threads
 )
+
+# QNX requires explicit linking to libsocket
+if(${CMAKE_SYSTEM_NAME} MATCHES "QNX")
+  target_link_libraries(${PROJECT_NAME} INTERFACE socket)
+endif()
+
 
 # Use moderate compiler warning option 
 if(CMAKE_HOST_UNIX)
