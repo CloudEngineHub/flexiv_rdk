@@ -22,6 +22,7 @@ set(EXAMPLE_LIST
   basics6_gripper_control
   basics7_auto_recovery
   basics8_update_robot_tool
+  basics9_move_in_TCP_frame
   intermediate6_robot_dynamics
   intermediate7_teach_by_demonstration
 )

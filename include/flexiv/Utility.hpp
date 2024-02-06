@@ -32,6 +32,61 @@ inline std::array<double, 3> quat2EulerZYX(const std::array<double, 4>& quat)
 }
 
 /**
+ * @brief Convert euler angle ZYX to quaternion. The angles are in radians. If you have angles in
+ * degrees, you need to convert them to radians before using this function. You can do this with the
+ * M_PI/180.0 * angle_in_degrees formula.
+ * @param eulerZYX
+ * @return Eigen::Quaterniond
+ */
+inline Eigen::Quaterniond eulerZYX2Quat(const std::array<double, 3>& eulerZYX)
+{
+    Eigen::AngleAxisd rollAngle(eulerZYX[2], Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(eulerZYX[1], Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(eulerZYX[0], Eigen::Vector3d::UnitZ());
+
+    Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+
+    return q;
+}
+
+template <typename T, std::size_t N>
+Eigen::Matrix<T, N, 1> array2EigenVector(const std::array<T, N>& arr)
+{
+    Eigen::Matrix<T, N, 1> eigenVector;
+    for (unsigned int i = 0; i < N; ++i) {
+        eigenVector(i) = arr[i];
+    }
+    return eigenVector;
+}
+
+template <typename T, int N>
+std::array<T, N> eigenVector2Array(const Eigen::Matrix<T, N, 1>& eigenVector)
+{
+    std::array<T, N> arr;
+    for (unsigned int i = 0; i < N; ++i) {
+        arr[i] = eigenVector(i);
+    }
+    return arr;
+}
+
+inline Eigen::Quaterniond eigenVector4d2Quat(const Eigen::Vector4d& eigenVector4)
+{
+
+    Eigen::Quaterniond Quat(eigenVector4[0], eigenVector4[1], eigenVector4[2], eigenVector4[3]);
+    return Quat;
+}
+
+inline Eigen::Vector4d Quat2EigenVector4d(const Eigen::Quaterniond& Quat)
+{
+    Eigen::Vector4d eigenVector4;
+    eigenVector4[0] = Quat.w();
+    eigenVector4[1] = Quat.x();
+    eigenVector4[2] = Quat.y();
+    eigenVector4[3] = Quat.z();
+    return eigenVector4;
+}
+
+/**
  * @brief Convert radians to degrees for a single value.
  */
 inline double rad2Deg(double rad)
