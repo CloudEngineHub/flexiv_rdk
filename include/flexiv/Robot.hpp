@@ -267,7 +267,8 @@ public:
      * @brief [Blocking] Get feedback states of the currently executing
      * primitive.
      * @return Primitive states in the format of a string list.
-     * @throw CommException if there's no response from the robot.
+     * @throw CommException if there's no response from the robot or the result
+     * is invalid.
      * @throw ExecutionException if error occurred during execution.
      * @warning This function blocks until the reply from the robot is received.
      */
@@ -314,7 +315,8 @@ public:
      * @note No need to call this function if the mounted tool on the robot has
      * only one TCP, it'll be used by default.
      * @note New TCP index will take effect upon control mode switch, or upon
-     * sending a new primitive command.
+     * sending a new primitive command. However, this function has no effect in
+     * plan execution mode as TCP index should be defined in the plan itself.
      * @warning This function blocks until the request is successfully delivered
      * to the robot.
      */
@@ -465,11 +467,11 @@ public:
      * \times 1} \f$ force and \f$ \mathbb{R}^{3 \times 1} \f$ moment: \f$ [f_x,
      * f_y, f_z, m_x, m_y, m_z]^T \f$. Unit: \f$ [N]~[Nm] \f$.
      * @param[in] maxLinearVel  Maximum Cartesian linear velocity when moving to
-     * the target pose. Default maximum linear velocity is used when set to 0.
-     * Unit: \f$ [m/s] \f$.
+     * the target pose. A safe value is provided as default. Unit: \f$ [m/s]
+     * \f$.
      * @param[in] maxAngularVel  Maximum Cartesian angular velocity when moving
-     * to the target pose. Default maximum angular velocity is used when set to
-     * 0. Unit: \f$ [rad/s] \f$.
+     * to the target pose. A safe value is provided as default. Unit: \f$
+     * [rad/s] \f$.
      * @throw InputException if input is invalid.
      * @throw LogicException if robot is not in the correct control mode.
      * @throw ExecutionException if error occurred during execution.
@@ -492,7 +494,7 @@ public:
      */
     void sendCartesianMotionForce(const std::vector<double>& pose,
         const std::vector<double>& wrench = std::vector<double>(6),
-        double maxLinearVel = 0.0, double maxAngularVel = 0.0);
+        double maxLinearVel = 0.5, double maxAngularVel = 1.0);
 
     /**
      * @brief [Non-blocking] Set motion stiffness for the Cartesian motion-force
@@ -558,8 +560,9 @@ public:
      * @throw LogicException if robot is not in the correct control mode.
      * @throw ExecutionException if error occurred during execution.
      * @note Applicable control modes: RT/NRT_CARTESIAN_MOTION_FORCE.
-     * @warning The robot will automatically reset to its nominal preferred
-     * joint positions upon re-entering the applicable control modes.
+     * @warning Upon entering the applicable control modes, the robot will
+     * automatically set its current joint positions as the preferred joint
+     * positions.
      * @par Null-space posture control
      * Similar to human arm, a robotic arm with redundant degree(s) of
      * freedom (DOF > 6) can change its overall posture without affecting the
@@ -572,8 +575,8 @@ public:
     void setNullSpacePosture(const std::vector<double>& preferredPositions);
 
     /**
-     * @brief [Non-blocking] Reset preferred joint positions to the robot's home
-     * posture.
+     * @brief [Non-blocking] Reset preferred joint positions to the ones
+     * automatically recorded when entering the applicable control modes.
      * @note Applicable control modes: RT/NRT_CARTESIAN_MOTION_FORCE.
      */
     void resetNullSpacePosture(void);
