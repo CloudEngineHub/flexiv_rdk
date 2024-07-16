@@ -13,8 +13,6 @@ set(CMAKE_CXX_COMPILER_TARGET ${arch})
 
 # set qnx build flags
 add_definitions("-D_QNX_SOURCE")
-#add_definitions("-std=c++14")
-#add_definitions("-stdlib=libstdc++")
 
 # set QNX_TARGET
 if (DEFINED ENV{QNX_TARGET})
