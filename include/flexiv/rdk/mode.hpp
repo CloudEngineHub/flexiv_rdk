@@ -10,8 +10,7 @@
 #include <map>
 #include <string>
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
 
 /**
  * @enum Mode
@@ -101,12 +100,13 @@ enum class Mode
      * like motion, force, vision, planning, etc.
      * @note Non-real-time (NRT) mode.
      * @see Robot::SendCartesianMotionForce().
+     * @see Robot::SendCartesianMotionForceMultiWaypoint().
      */
     NRT_SUPER_PRIMITIVE,
 };
 
-/** Map Mode enum to string */
-static const std::map<Mode, std::string> kModeNames {
+/** Map Mode enums to strings */
+inline const std::map<Mode, std::string> kModeNames {
     {Mode::UNKNOWN, "UNKNOWN"},
     {Mode::IDLE, "IDLE"},
     {Mode::RT_JOINT_TORQUE, "RT_JOINT_TORQUE"},
@@ -121,7 +121,6 @@ static const std::map<Mode, std::string> kModeNames {
     {Mode::NRT_SUPER_PRIMITIVE, "NRT_SUPER_PRIMITIVE"},
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_MODE_HPP_ */

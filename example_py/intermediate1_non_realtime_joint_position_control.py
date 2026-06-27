@@ -23,7 +23,7 @@ def main():
     # Required arguments
     argparser.add_argument(
         "robot_sn",
-        help="Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456",
+        help="Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456",
     )
     argparser.add_argument(
         "frequency", help="Command frequency, 1 to 100 [Hz]", type=int
@@ -65,9 +65,9 @@ def main():
                 return 1
             logger.info("Fault on the connected robot is cleared")
 
-        # Enable the robot, make sure the E-stop is released before enabling
-        logger.info("Enabling robot ...")
-        robot.Enable()
+        # Servo on the robot, make sure the E-stop is released
+        logger.info("Servo on the robot ...")
+        robot.ServoOn()
 
         # Wait for the robot to become operational
         while not robot.operational():
@@ -77,14 +77,20 @@ def main():
 
         # Move robot to home pose
         logger.info("Moving to home pose")
-        robot.SwitchMode(mode.NRT_PLAN_EXECUTION)
-        robot.ExecutePlan("PLAN-Home")
-        # Wait for the plan to finish
-        while robot.busy():
-            time.sleep(1)
+        robot.Home()
 
         # Non-real-time Joint Position Control
         # ==========================================================================================
+        # Direct joint control can be executed by single-arm joint groups and the external axis
+        exe_groups = robot.info().single_arm_groups
+        if not exe_groups:
+            raise RuntimeError("No single-arm joint group found on the connected robot")
+        # The external axis joint group (if it exists) also supports direct joint control
+        if flexivrdk.JointGroup.EXT_AXIS in robot.info().all_groups:
+            exe_groups[flexivrdk.JointGroup.EXT_AXIS] = robot.info().all_groups[
+                flexivrdk.JointGroup.EXT_AXIS
+            ]
+
         # Switch to non-real-time joint position control mode
         robot.SwitchMode(mode.NRT_JOINT_POSITION)
 
@@ -96,8 +102,9 @@ def main():
 
         # Use current robot joint positions as initial positions
         all_init_pos = {}
-        for group, states in robot.states().items():
-            all_init_pos[group] = states.q.copy()
+        robot_states = robot.states()
+        for group in exe_groups:
+            all_init_pos[group] = robot_states[group].q.copy()
             logger.info(
                 f"[{flexivrdk.kJointGroupNames[group]}] Initial joint positions: {all_init_pos[group]}"
             )

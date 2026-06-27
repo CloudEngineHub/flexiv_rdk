@@ -8,8 +8,7 @@
 
 #include "robot.hpp"
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
 
 /** Number of safety IO ports */
 constexpr size_t kSafetyIOPorts = 8;
@@ -20,30 +19,30 @@ constexpr size_t kSafetyIOPorts = 8;
  */
 struct SafetyLimits
 {
-    /** Lower safety limits of joint positions: \f$ q_{min} \in \mathbb{R}^{n \times 1} \f$.
-     * Unit: \f$ [rad] \f$. */
-    std::vector<double> q_min = {};
+    /** Lower safety limits of joint positions for each joint group: \f$ q_{min} \in
+     * \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad] \f$. */
+    std::map<JointGroup, std::vector<double>> q_min = {};
 
-    /** Upper safety limits of joint positions: \f$ q_{max} \in \mathbb{R}^{n \times 1} \f$.
-     * Unit: \f$ [rad] \f$. */
-    std::vector<double> q_max = {};
+    /** Upper safety limits of joint positions for each joint group: \f$ q_{max} \in
+     * \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad] \f$. */
+    std::map<JointGroup, std::vector<double>> q_max = {};
 
-    /** Upper safety limits of joint velocities when the robot is in normal state: \f$
-     * \dot{q}^{normal}_{max} \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad/s] \f$. */
-    std::vector<double> dq_max_normal = {};
+    /** Upper safety limits of joint velocities for each joint group when the robot is in normal
+     * state: \f$ \dot{q}^{normal}_{max} \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad/s] \f$. */
+    std::map<JointGroup, std::vector<double>> dq_max_normal = {};
 
-    /** Upper safety limits of joint velocities when the robot is in reduced state: \f$
-     * \dot{q}^{reduced}_{max} \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad/s] \f$.
+    /** Upper safety limits of joint velocities for each joint group when the robot is in reduced
+     * state: \f$ \dot{q}^{reduced}_{max} \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad/s] \f$.
      * @see Robot::reduced() */
-    std::vector<double> dq_max_reduced = {};
+    std::map<JointGroup, std::vector<double>> dq_max_reduced = {};
 };
 
 /**
  * @class Safety
  * @brief Interface to manage safety settings of the robot. A password is required to authenticate
  * this interface.
- * @note As mentioned in the function doc, certain safety settings are only applicable to the
- * manipulator but not the external axes.
+ * @note As mentioned in the function doc, certain safety settings are only applicable to the arms
+ * but not the external axis.
  */
 class Safety
 {
@@ -86,8 +85,10 @@ public:
      * @param[in] max_positions Maximum joint positions: \f$ q_{max} \in \mathbb{R}^{n \times 1}
      * \f$. Valid range: [default_min_joint_positions, default_max_joint_positions]. Unit: \f$ [rad]
      * \f$.
-     * @throw std::invalid_argument if [min_positions] or [max_positions] contains any value outside
-     * the valid range, or size of any input vector does not match manipulator DoF.
+     * @param[in] group Joint group to apply the limits to.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, if [min_positions] or [max_positions] contains any value outside the valid
+     * range, or if size of any input vector does not match manipulator DoF.
      * @throw std::logic_error if robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: IDLE.
@@ -95,8 +96,8 @@ public:
      * @warning A reboot is required for the updated safety settings to take effect. After reboot,
      * make sure to use current_limits() to double check the updated safety limits are correct.
      */
-    void SetJointPositionLimits(
-        const std::vector<double>& min_positions, const std::vector<double>& max_positions);
+    void SetJointPositionLimits(JointGroup group, const std::vector<double>& min_positions,
+        const std::vector<double>& max_positions);
 
     /**
      * @brief [Blocking] Set safety limits on the joint velocities of the manipulator, which will
@@ -104,8 +105,10 @@ public:
      * @param[in] max_velocities Maximum joint velocities for normal state: \f$ \dot{q}_{max} \in
      * \mathbb{R}^{n \times 1} \f$. Valid range: [0.8727, joint_velocity_normal_limits]. Unit: \f$
      * [rad/s] \f$.
-     * @throw std::invalid_argument if [max_velocities] contains any value outside the valid range,
-     * or its size does not match manipulator DoF.
+     * @param[in] group Joint group to apply the limits to.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, if [max_velocities] contains any value outside the valid range, or if its
+     * size does not match manipulator DoF.
      * @throw std::logic_error if robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: IDLE.
@@ -113,7 +116,7 @@ public:
      * @warning A reboot is required for the updated safety settings to take effect. After reboot,
      * make sure to use current_limits() to double check the updated safety limits are correct.
      */
-    void SetJointVelocityNormalLimits(const std::vector<double>& max_velocities);
+    void SetJointVelocityNormalLimits(JointGroup group, const std::vector<double>& max_velocities);
 
     /**
      * @brief [Blocking] Set safety limits on the joint velocities of the manipulator, which will
@@ -121,8 +124,10 @@ public:
      * @param[in] max_velocities Maximum joint velocities for reduced state: \f$ \dot{q}_{max} \in
      * \mathbb{R}^{n \times 1} \f$. Valid range: [0.8727, joint_velocity_normal_limits]. Unit: \f$
      * [rad/s] \f$.
-     * @throw std::invalid_argument if [max_velocities] contains any value outside the valid range,
-     * or its size does not match manipulator DoF.
+     * @param[in] group Joint group to apply the limits to.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, if [max_velocities] contains any value outside the valid range, or if its
+     * size does not match manipulator DoF.
      * @throw std::logic_error if robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: IDLE.
@@ -130,7 +135,7 @@ public:
      * @warning A reboot is required for the updated safety settings to take effect. After reboot,
      * make sure to use current_limits() to double check the updated safety limits are correct.
      */
-    void SetJointVelocityReducedLimits(const std::vector<double>& max_velocities);
+    void SetJointVelocityReducedLimits(JointGroup group, const std::vector<double>& max_velocities);
 
     /**
      * @brief [Blocking] Change settings of the regulator on the joint output torques of the
@@ -158,7 +163,6 @@ private:
     std::unique_ptr<Impl> pimpl_;
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_SAFETY_HPP_ */

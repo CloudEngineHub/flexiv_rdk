@@ -24,7 +24,7 @@ void PrintHelp()
 {
     // clang-format off
     std::cout << "Required arguments: [robot_sn]" << std::endl;
-    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456" << std::endl;
+    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456" << std::endl;
     std::cout << "Optional arguments: None" << std::endl;
     std::cout << std::endl;
     // clang-format on
@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
         PrintHelp();
         return 1;
     }
-    // Serial number of the robot to connect to. Remove any space, for example: Rizon4s-123456
+    // Serial number of the robot to connect to
     std::string robot_sn = argv[1];
 
     // Print description
@@ -65,9 +65,9 @@ int main(int argc, char* argv[])
             spdlog::info("Fault on the connected robot is cleared");
         }
 
-        // Enable the robot, make sure the E-stop is released before enabling
-        spdlog::info("Enabling robot ...");
-        robot.Enable();
+        // Servo on the robot, make sure the E-stop is released
+        spdlog::info("Servo on the robot ...");
+        robot.ServoOn();
 
         // Wait for the robot to become operational
         while (!robot.operational()) {
@@ -77,28 +77,12 @@ int main(int argc, char* argv[])
 
         // Move robot to home pose
         spdlog::info("Moving to home pose");
-        robot.SwitchMode(rdk::Mode::NRT_PLAN_EXECUTION);
-        robot.ExecutePlan("PLAN-Home");
-        // Wait for the plan to finish
-        while (robot.busy()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
+        robot.Home();
 
         // Robot Dynamics
         // =========================================================================================
         // Initialize dynamics engine
         rdk::Model model(robot);
-
-        auto CombineStates
-            = [](const std::map<rdk::JointGroup, rdk::RobotStates>& all_states, bool position) {
-                  std::vector<double> combined;
-                  for (const auto& [group, states] : all_states) {
-                      (void)group;
-                      const auto& src = position ? states.q : states.dtheta;
-                      combined.insert(combined.end(), src.begin(), src.end());
-                  }
-                  return combined;
-              };
 
         // Step dynamics engine 5 times
         for (size_t i = 0; i < 5; i++) {
@@ -106,8 +90,9 @@ int main(int argc, char* argv[])
             auto tic = std::chrono::high_resolution_clock::now();
 
             // Update robot model in dynamics engine
-            const auto all_states = robot.states();
-            model.Update(CombineStates(all_states, true), CombineStates(all_states, false));
+            const auto robot_states = robot.states();
+            model.Update(robot_states.at(rdk::JointGroup::ALL).q,
+                robot_states.at(rdk::JointGroup::ALL).dq);
 
             // Compute gravity vector
             auto g = model.g();
@@ -135,15 +120,34 @@ int main(int argc, char* argv[])
             std::cout << std::endl;
         }
 
-        // Check reachability of a Cartesian pose based on current pose
-        const auto states_for_reach = robot.states();
-        auto pose_to_check = states_for_reach.begin()->second.tcp_pose;
-        pose_to_check[0] += 0.1;
-        spdlog::info(
-            "Checking reachability of Cartesian pose [{}]", rdk::utility::Arr2Str(pose_to_check));
-        auto result = model.reachable(pose_to_check, CombineStates(states_for_reach, true), true);
-        spdlog::info("Got a result: reachable = {}, IK solution = [{}]", result.first,
-            rdk::utility::Vec2Str(result.second));
+        // Check IK feasibility for a nearby Cartesian pose on all available single-arm joint groups
+        const auto& single_arm_groups = robot.info().single_arm_groups;
+        if (single_arm_groups.empty()) {
+            throw std::runtime_error("No single-arm joint group found on the connected robot");
+        }
+
+        const auto robot_states = robot.states();
+        std::map<rdk::JointGroup, rdk::IKParams> ik_params_by_group;
+        for (const auto& [group, _] : single_arm_groups) {
+            auto pose_to_check = robot_states.at(group).tcp_pose;
+            pose_to_check[0] += 0.1;
+            spdlog::info("[{}] Checking IK feasibility of Cartesian pose [{}]",
+                rdk::kJointGroupNames.at(group), rdk::utility::Arr2Str(pose_to_check));
+
+            rdk::IKParams ik_params;
+            ik_params.cartesian_pose = pose_to_check;
+            ik_params.seed_q = robot_states.at(group).q;
+            ik_params.free_orientation = false;
+            ik_params_by_group[group] = ik_params;
+        }
+
+        // Print result
+        auto result = model.SolveConstrainedIK(ik_params_by_group);
+        spdlog::info("IK result success = {}", result.success);
+        for (const auto& [group, q] : result.solved_q) {
+            spdlog::info(
+                "[{}] solved_q = [{}]", rdk::kJointGroupNames.at(group), rdk::utility::Vec2Str(q));
+        }
 
     } catch (const std::exception& e) {
         spdlog::error(e.what());

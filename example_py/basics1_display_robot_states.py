@@ -25,7 +25,7 @@ def print_robot_states(robot, logger, stop_event):
     while not stop_event.is_set():
         # Print available joint groups
         joint_groups_str = " ".join(
-            [f"[{flexivrdk.kJointGroupNames[group]}]" for group in robot.groups()]
+            [f"[{name}]" for name in robot.info().all_groups.values()]
         )
         logger.info(f"Available joint groups: {joint_groups_str}")
 
@@ -40,7 +40,6 @@ def print_robot_states(robot, logger, stop_event):
             print(f"dq: {['%.3f' % i for i in states.dq]}")
             print(f"dtheta: {['%.3f' % i for i in states.dtheta]}")
             print(f"tau: {['%.3f' % i for i in states.tau]}")
-            print(f"tau_des: {['%.3f' % i for i in states.tau_des]}")
             print(f"tau_dot: {['%.3f' % i for i in states.tau_dot]}")
             print(f"tau_ext: {['%.3f' % i for i in states.tau_ext]}")
             print(f"tau_interact: {['%.3f' % i for i in states.tau_interact]}")
@@ -56,9 +55,26 @@ def print_robot_states(robot, logger, stop_event):
             print("}", flush=True)
             # fmt: on
 
-        # Print digital inputs
+        # Print all robot actions in JSON format using the built-in __str__ overloading
+        for group, actions in robot.actions().items():
+            logger.info(f"[{flexivrdk.kJointGroupNames[group]}] robot actions:")
+            # fmt: off
+            print("{")
+            print(f"timestamp: [{actions.timestamp[0]}, {actions.timestamp[1]}]")
+            print(f"q_d: {['%.3f' % i for i in actions.q_d]}")
+            print(f"dq_d: {['%.3f' % i for i in actions.dq_d]}")
+            print(f"tau_d: {['%.3f' % i for i in actions.tau_d]}")
+            print(f"tcp_pose_d: {['%.3f' % i for i in actions.tcp_pose_d]}")
+            print(f"tcp_twist_d: {['%.3f' % i for i in actions.tcp_twist_d]}")
+            print(f"tcp_wrench_d: {['%.3f' % i for i in actions.tcp_wrench_d]}")
+            print("}", flush=True)
+            # fmt: on
+
+        # Print digital inputs and outputs
         logger.info("Digital inputs:")
         print(robot.digital_inputs())
+        logger.info("Digital outputs:")
+        print(robot.digital_outputs())
         time.sleep(1)
 
 
@@ -72,7 +88,7 @@ def main():
     argparser = argparse.ArgumentParser()
     argparser.add_argument(
         "robot_sn",
-        help="Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456",
+        help="Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456",
     )
     args = argparser.parse_args()
 
@@ -99,9 +115,9 @@ def main():
                 return 1
             logger.info("Fault on the connected robot is cleared")
 
-        # Enable the robot, make sure the E-stop is released before enabling
-        logger.info("Enabling robot ...")
-        robot.Enable()
+        # Servo on the robot, make sure the E-stop is released
+        logger.info("Servo on the robot ...")
+        robot.ServoOn()
 
         # Wait for the robot to become operational
         while not robot.operational():

@@ -3,7 +3,12 @@ cmake_minimum_required(VERSION 3.22.1)
 # ===================================================================
 #      PROJECT SETUP
 # ===================================================================
-project(flexiv_rdk VERSION 2.0)
+project(flexiv_rdk VERSION 2.1 LANGUAGES CXX)
+
+# CMake >= 3.30 warns for FindBoost behavior unless CMP0167 is explicitly set.
+if(POLICY CMP0167)
+  cmake_policy(SET CMP0167 OLD)
+endif()
 
 # Configure build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -40,7 +45,7 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "QNX")
   elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64le")
     set(RDK_LIB "libflexiv_rdk.aarch64-qnx.a")
   else()
-    message(FATAL_ERROR "Linux with ${CMAKE_SYSTEM_PROCESSOR} processor is currently not supported.")
+    message(FATAL_ERROR "QNX with ${CMAKE_SYSTEM_PROCESSOR} processor is currently not supported.")
   endif()
 else()
   message(FATAL_ERROR "${CMAKE_SYSTEM_NAME} is currently not supported.")
@@ -80,13 +85,13 @@ message(STATUS "Found Eigen3 v${Eigen3_VERSION}: ${Eigen3_DIR}")
 find_package(spdlog 1.9.2 REQUIRED)
 message(STATUS "Found spdlog v${spdlog_VERSION}: ${spdlog_DIR}")
 
-# Fast-DDS
-find_package(fastdds 3.5.0 REQUIRED)
-message(STATUS "Found fastdds v${fastdds_VERSION}: ${fastdds_DIR}")
+# zenoh-c
+find_package(zenohc 1.9.0 REQUIRED)
+message(STATUS "Found zenohc v${zenohc_VERSION}: ${zenohc_DIR}")
 
-# Fast-CDR
-find_package(fastcdr 2.3.5 REQUIRED)
-message(STATUS "Found fastcdr v${fastcdr_VERSION}: ${fastcdr_DIR}")
+# zenoh-cpp
+find_package(zenohcxx 1.9.0 REQUIRED)
+message(STATUS "Found zenohcxx v${zenohcxx_VERSION}: ${zenohcxx_DIR}")
 
 # RBDyn
 set(Boost_USE_STATIC_LIBS OFF)
@@ -113,11 +118,13 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   Threads::Threads
   Eigen3::Eigen
   spdlog::spdlog
-  fastdds
-  fastcdr
+  zenohcxx::zenohc
   RBDyn::RBDyn
   RBDyn::Parsers
 )
+
+# C++20 required (PUBLIC so the standard propagates to consumers)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 # Use moderate compiler warning option
 if(CMAKE_HOST_UNIX)
@@ -126,6 +133,8 @@ else()
   target_compile_options(${PROJECT_NAME} PUBLIC /W1)
 endif()
 
-# Install the library
+# ===================================================================
+#      LIBRARY INSTALLATION
+# ===================================================================
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FlexivInstallLibrary.cmake)
 FlexivInstallLibrary()

@@ -33,14 +33,14 @@ void PrintHelp()
 {
     // clang-format off
     std::cout << "Required arguments: [robot_sn]" << std::endl;
-    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456" << std::endl;
+    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456" << std::endl;
     std::cout << "Optional arguments: None" << std::endl;
     std::cout << std::endl;
     // clang-format on
 }
 
 /** @brief Callback function for realtime periodic task */
-void PeriodicTask(rdk::Robot& robot)
+void PeriodicTask(rdk::Robot& robot, const std::map<rdk::JointGroup, std::string>& exe_groups)
 {
     try {
         // Monitor fault on the connected robot
@@ -50,12 +50,17 @@ void PeriodicTask(rdk::Robot& robot)
         }
 
         std::map<rdk::JointGroup, rdk::RtJointTorqueCmd> rt_cmds;
-        for (const auto& [group, states] : robot.states()) {
+        const auto all_states = robot.states();
+        for (const auto& [group, _] : exe_groups) {
+            const auto& states = all_states.at(group);
             std::vector<double> target_torque(states.q.size());
 
-            // Add some velocity damping
-            for (size_t i = 0; i < target_torque.size(); ++i) {
-                target_torque[i] += -kFloatingDamping[i] * states.dtheta[i];
+            // Don't add damping for external axis
+            if (group != rdk::JointGroup::EXT_AXIS) {
+                // Add some velocity damping
+                for (size_t i = 0; i < target_torque.size(); ++i) {
+                    target_torque[i] += -kFloatingDamping[i] * states.dtheta[i];
+                }
             }
 
             rt_cmds[group] = rdk::RtJointTorqueCmd(target_torque, true, true);
@@ -80,7 +85,7 @@ int main(int argc, char* argv[])
         PrintHelp();
         return 1;
     }
-    // Serial number of the robot to connect to. Remove any space, for example: Rizon4s-123456
+    // Serial number of the robot to connect to
     std::string robot_sn = argv[1];
 
     // Print description
@@ -108,9 +113,9 @@ int main(int argc, char* argv[])
             spdlog::info("Fault on the connected robot is cleared");
         }
 
-        // Enable the robot, make sure the E-stop is released before enabling
-        spdlog::info("Enabling robot ...");
-        robot.Enable();
+        // Servo on the robot, make sure the E-stop is released
+        spdlog::info("Servo on the robot ...");
+        robot.ServoOn();
 
         // Wait for the robot to become operational
         while (!robot.operational()) {
@@ -120,23 +125,29 @@ int main(int argc, char* argv[])
 
         // Move robot to home pose
         spdlog::info("Moving to home pose");
-        robot.SwitchMode(rdk::Mode::NRT_PLAN_EXECUTION);
-        robot.ExecutePlan("PLAN-Home");
-        // Wait for the plan to finish
-        while (robot.busy()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
+        robot.Home();
 
         // Real-time Joint Floating
         // =========================================================================================
+        // Direct joint control can be executed by single-arm joint groups and the external axis
+        auto exe_groups = robot.info().single_arm_groups;
+        if (exe_groups.empty()) {
+            throw std::runtime_error("No single-arm joint group found on the connected robot");
+        }
+        // The external axis joint group (if exists) also supports direct joint control
+        if (robot.info().all_groups.contains(rdk::JointGroup::EXT_AXIS)) {
+            exe_groups.emplace(
+                rdk::JointGroup::EXT_AXIS, robot.info().all_groups.at(rdk::JointGroup::EXT_AXIS));
+        }
+
         // Switch to real-time joint torque control mode
         robot.SwitchMode(rdk::Mode::RT_JOINT_TORQUE);
 
         // Create real-time scheduler to run periodic tasks
         rdk::Scheduler scheduler;
         // Add periodic task with 1ms interval and highest applicable priority
-        scheduler.AddTask(
-            std::bind(PeriodicTask, std::ref(robot)), "HP periodic", 1, scheduler.max_priority());
+        scheduler.AddTask(std::bind(PeriodicTask, std::ref(robot), std::cref(exe_groups)),
+            "HP periodic", 1, scheduler.max_priority());
         // Start all added tasks
         scheduler.Start();
 

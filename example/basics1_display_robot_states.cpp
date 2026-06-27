@@ -20,7 +20,7 @@ void PrintHelp()
 {
     // clang-format off
     std::cout << "Required arguments: [robot_sn]" << std::endl;
-    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456" << std::endl;
+    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456" << std::endl;
     std::cout << "Optional arguments: None" << std::endl;
     std::cout << std::endl;
     // clang-format on
@@ -32,8 +32,8 @@ void PrintRobotStates(rdk::Robot& robot)
     while (true) {
         // Print Available joint groups
         std::string joint_groups_str;
-        for (const auto& group : robot.groups()) {
-            joint_groups_str += "[" + rdk::kJointGroupNames.at(group) + "] ";
+        for (const auto& [_, name] : robot.info().all_groups) {
+            joint_groups_str += "[" + name + "] ";
         }
         spdlog::info("Available joint groups: {}", joint_groups_str);
 
@@ -43,9 +43,17 @@ void PrintRobotStates(rdk::Robot& robot)
             std::cout << states << std::endl;
         }
 
-        // Print digital inputs
+        // Print all robot actions in JSON format using the built-in ostream operator overloading
+        for (const auto& [group, actions] : robot.actions()) {
+            spdlog::info("[{}] robot actions:", rdk::kJointGroupNames.at(group));
+            std::cout << actions << std::endl;
+        }
+
+        // Print digital inputs and outputs
         spdlog::info("Digital inputs:");
         std::cout << rdk::utility::Arr2Str(robot.digital_inputs()) << std::endl;
+        spdlog::info("Digital outputs:");
+        std::cout << rdk::utility::Arr2Str(robot.digital_outputs()) << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
@@ -59,7 +67,7 @@ int main(int argc, char* argv[])
         PrintHelp();
         return 1;
     }
-    // Serial number of the robot to connect to. Remove any space, for example: Rizon4s-123456
+    // Serial number of the robot to connect to
     std::string robot_sn = argv[1];
 
     // Print description
@@ -84,9 +92,9 @@ int main(int argc, char* argv[])
             spdlog::info("Fault on the connected robot is cleared");
         }
 
-        // Enable the robot, make sure the E-stop is released before enabling
-        spdlog::info("Enabling robot ...");
-        robot.Enable();
+        // Servo on the robot, make sure the E-stop is released
+        spdlog::info("Servo on the robot ...");
+        robot.ServoOn();
 
         // Wait for the robot to become operational
         while (!robot.operational()) {

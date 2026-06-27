@@ -8,11 +8,72 @@
 
 #include "data.hpp"
 #include <Eigen/Eigen>
+#include <algorithm>
 #include <sstream>
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
+
 namespace utility {
+
+/** @brief Whether the specified group represents a single arm. */
+inline bool IsSingleArmGroup(JointGroup group)
+{
+    return group == JointGroup::ARM_1 || group == JointGroup::ARM_2;
+}
+
+/**
+ * @brief Check whether one primitive state is true.
+ * @param[in] primitive_states Primitive states.
+ * @param[in] state_name Primitive state name to check, e.g. "reachedTarget".
+ * @return True if the state exists and its integer value is non-zero.
+ */
+inline bool PrimitiveStateTrue(
+    const PrimitiveStates& primitive_states, const std::string& state_name)
+{
+    const auto state_it = primitive_states.names_and_values.find(state_name);
+    if (state_it == primitive_states.names_and_values.end()) {
+        return false;
+    }
+
+    if (!std::holds_alternative<int>(state_it->second)) {
+        return false;
+    }
+
+    return std::get<int>(state_it->second) != 0;
+}
+
+/**
+ * @brief Check whether one primitive state is true for all groups included in [primitive_states].
+ * @param[in] primitive_states Primitive states keyed by joint group.
+ * @param[in] state_name Primitive state name to check, e.g. "reachedTarget".
+ * @return True if all included groups contain the state and its integer value is non-zero.
+ */
+inline bool PrimitiveStateTrueForGroups(
+    const std::map<JointGroup, PrimitiveStates>& primitive_states, const std::string& state_name)
+{
+    return std::all_of(primitive_states.begin(), primitive_states.end(),
+        [&](const auto& entry) { return PrimitiveStateTrue(entry.second, state_name); });
+}
+
+/**
+ * @brief Check whether one primitive state is true for each group included in [primitive_states],
+ * using a per-group state name.
+ * @param[in] primitive_states Primitive states keyed by joint group.
+ * @param[in] state_names Primitive state names keyed by joint group.
+ * @return True if every included group has a matching state name entry and its integer value is
+ * non-zero.
+ */
+inline bool PrimitiveStateTrueForGroups(
+    const std::map<JointGroup, PrimitiveStates>& primitive_states,
+    const std::map<JointGroup, std::string>& state_names)
+{
+    return std::all_of(primitive_states.begin(), primitive_states.end(), [&](const auto& entry) {
+        if (!state_names.contains(entry.first)) {
+            return false;
+        }
+        return PrimitiveStateTrue(entry.second, state_names.at(entry.first));
+    });
+}
 
 /**
  * @brief Convert quaternion to Euler angles with ZYX axis rotations.
@@ -179,7 +240,6 @@ inline bool ProgramArgsExist(int argc, char** argv, const std::string& ref_strin
 }
 
 } /* namespace utility */
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_UTILITY_HPP_ */

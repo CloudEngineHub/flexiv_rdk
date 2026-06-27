@@ -8,8 +8,7 @@
 
 #include "robot.hpp"
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
 
 /**
  * @struct ToolParams
@@ -58,12 +57,16 @@ public:
     std::vector<std::string> list() const;
 
     /**
-     * @brief [Blocking] Name of the tool that the robot is currently using.
-     * @return Name of the current tool. Return "Flange" if there's no active tool.
+     * @brief [Blocking] Name of the active tool currently used by the specified joint group.
+     * @param[in] group Joint group to get tool name for. Only existing single-arm joint groups
+     * like ARM_1 and ARM_2 are accepted.
+     * @return Name of the active tool. Return "Flange" if there's no active tool.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot.
      * @throw std::runtime_error if failed to get a reply from the connected robot.
      * @note This function blocks until a reply is received.
      */
-    std::string name() const;
+    std::string name(JointGroup group) const;
 
     /**
      * @brief [Blocking] Whether the specified tool already exists.
@@ -75,17 +78,21 @@ public:
     bool exist(const std::string& name) const;
 
     /**
-     * @brief [Blocking] Parameters of the tool that the robot is currently using.
-     * @return ToolParams value copy.
+     * @brief [Blocking] Parameters of the active tool currently used by the specified joint group.
+     * @param[in] group Joint group to get tool parameters for. Only existing single-arm joint
+     * groups like ARM_1 and ARM_2 are accepted.
+     * @return ToolParams data struct.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot.
      * @throw std::runtime_error if failed to get a reply from the connected robot.
      * @note This function blocks until a reply is received.
      */
-    ToolParams params() const;
+    ToolParams params(JointGroup group) const;
 
     /**
      * @brief [Blocking] Parameters of the specified tool.
      * @param[in] name Name of the tool to get parameters for, must be an existing one.
-     * @return ToolParams value copy.
+     * @return ToolParams data struct.
      * @throw std::invalid_argument if the specified tool does not exist.
      * @throw std::runtime_error if failed to get a reply from the connected robot.
      * @note This function blocks until a reply is received.
@@ -105,16 +112,20 @@ public:
     void Add(const std::string& name, const ToolParams& params);
 
     /**
-     * @brief [Blocking] Switch to an existing tool. All following robot operations will default to
-     * use this tool.
+     * @brief [Blocking] Switch active tool for the specified joint group. All following operations
+     * will default to use this tool.
+     * @param[in] group Joint group to switch active tool for. Only existing single-arm joint
+     * groups like ARM_1 and ARM_2 are accepted.
      * @param[in] name Name of the tool to switch to, must be an existing one.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot.
      * @throw std::invalid_argument if the specified tool does not exist.
      * @throw std::logic_error if robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: IDLE.
      * @note This function blocks until the request is successfully delivered.
      */
-    void Switch(const std::string& name);
+    void Switch(JointGroup group, const std::string& name);
 
     /**
      * @brief [Blocking] Update the parameters of an existing tool.
@@ -171,7 +182,6 @@ private:
     std::unique_ptr<Impl> pimpl_;
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_TOOL_HPP_ */

@@ -13,8 +13,7 @@
 #include <exception>
 #include <map>
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
 
 /**
  * @class Robot
@@ -28,18 +27,14 @@ public:
      * @brief [Blocking] Instantiate the robot control interface. RDK services will be started and
      * establish connection with the target robot.
      * @param[in] robot_sn Serial number of the robot to connect. The accepted formats are:
-     * "Rizon 4s-123456" and "Rizon4s-123456".
-     * @param[in] network_interface_whitelist Limit the network interface(s) that can be used to try
-     * to establish connection with the specified robot. The whitelisted network interface is
-     * defined by its associated IPv4 address. For example, {"10.42.0.1", "192.168.2.102"}. If left
-     * empty, all available network interfaces will be tried when searching for the specified robot.
+     * "Enlight-L-123456" and "Enlight L-123456". See ProductModel enum for all supported models.
      * @param[in] verbose Enable/disable info and warning prints.
      * @param[in] lite Whether to create a lite instance. See details below. A normal instance must
      * have already connected to the robot for lite instances to function properly.
      * @throw std::invalid_argument if the format of [robot_sn] is invalid.
      * @throw std::runtime_error if the initialization sequence failed.
-     * @throw std::logic_error if the connected robot lacks a valid RDK license, or is incompatible
-     * with this RDK library version, or is an unsupported robot model.
+     * @throw std::logic_error if the connected robot does not have a valid RDK license, or is
+     * incompatible with this RDK library version, or is an unsupported product model.
      * @warning This constructor blocks until the initialization sequence is successfully finished
      * and connection with the robot is established.
      * @par Lite Instance
@@ -50,9 +45,7 @@ public:
      * one-shot requests, which are functions marked with the [Blocking] tag. A lite instance does
      * not receive robot states or system status, nor send motion commands.
      */
-    Robot(const std::string& robot_sn,
-        const std::vector<std::string>& network_interface_whitelist = {}, bool verbose = true,
-        bool lite = false);
+    Robot(const std::string& robot_sn, bool verbose = true, bool lite = false);
     virtual ~Robot();
 
     //========================================= ACCESSORS ==========================================
@@ -81,21 +74,23 @@ public:
     Mode mode() const;
 
     /**
-     * @brief [Non-blocking] Current states data of all joint groups of the robot.
-     * @return A map of JointGroup to RobotStates. Only contains joint groups that exist.
+     * @brief [Non-blocking] Current states data of all existing joint groups of the robot.
+     * @return Robot states data mapped by joint group.
+     * @warning Cartesian states of non-single-arm joint groups are not populated.
      */
     std::map<JointGroup, RobotStates> states() const;
 
     /**
-     * @brief [Non-blocking] Joint groups that the connected robot has.
-     * @return Existing joint groups ordered by the enum value from low to high.
+     * @brief [Non-blocking] Current actions data of all existing joint groups of the robot.
+     * @return Robot actions data mapped by joint group.
+     * @warning Cartesian actions of non-single-arm joint groups are not populated.
      */
-    std::vector<JointGroup> groups() const;
+    std::map<JointGroup, RobotActions> actions() const;
 
     /**
      * @brief [Non-blocking] Whether specific joint groups of the robot have come to a complete
      * stop.
-     * @return A map of JointGroup to stopped flag. True: this joint group has stopped; false: this
+     * @return Stopped flag mapped by joint group. True: this joint group has stopped; false: this
      * joint group is still moving.
      */
     std::map<JointGroup, bool> stopped() const;
@@ -151,7 +146,7 @@ public:
     /**
      * @brief [Non-blocking] Whether the robot is in recovery state.
      * @return True: in recovery state; false: not in recovery state.
-     * @note Use RunAutoRecovery() to execute automatic recovery operation.
+     * @note Please use Flexiv Elements to get the robot out of recovery state.
      * @par Recovery state
      * The robot will enter recovery state if it needs to recover from joint position limit
      * violation (a critical system fault that requires a recovery operation, during which the
@@ -162,16 +157,17 @@ public:
     bool recovery() const;
 
     /**
-     * @brief [Non-blocking] Whether the emergency stop (E-stop) is released.
+     * @brief [Non-blocking] Whether all connected emergency stops (E-stops) are released.
      * @return True: released; false: pressed.
      */
     bool estop_released() const;
 
     /**
-     * @brief [Non-blocking] Whether the enabling button is pressed.
-     * @return True: pressed; false: released.
+     * @brief [Non-blocking] Whether the 3-position enabling device (e.g. enabling button on the
+     * motion bar) is in the ON position (the middle position).
+     * @return True: ON; false: OFF.
      */
-    bool enabling_button_pressed() const;
+    bool enabling_device_on() const;
 
     /**
      * @brief [Non-blocking] Whether the timeliness failure limit has been reached within a
@@ -192,31 +188,43 @@ public:
 
     //======================================= SYSTEM CONTROL =======================================
     /**
-     * @brief [Blocking] Enable the robot. If E-stop is released and there's no fault, the robot
+     * @brief [Blocking] Servo on the robot. If E-stop is released and there's no fault, the robot
      * will release brakes, and becomes operational a few seconds later.
      * @throw std::logic_error if the robot is not connected or E-stop is not released.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note This function blocks until the request is successfully delivered.
      */
-    void Enable();
+    void ServoOn();
+
+    /**
+     * @brief [Blocking] Move the specified joint groups to the home posture using Home primitive.
+     * @param[in] groups Joint group(s) to home. Only existing single-arm joint groups like ARM_1
+     * and ARM_2 are accepted. If left empty, home all applicable joint groups.
+     * @throw std::invalid_argument if [groups] contains joint groups that are not existing
+     * single-arm joint groups in the connected robot.
+     * @throw std::runtime_error if failed to execute the Home primitive.
+     * @note The robot's control mode will be temporarily switched to NRT_PRIMITIVE_EXECUTION and
+     * restored to the previous mode before returning.
+     * @note This function blocks until all specified joint groups have reached the home posture.
+     */
+    void Home(const std::vector<JointGroup>& groups = {});
 
     /**
      * @brief [Blocking] Force robot brakes to engage or release during normal operation.
      * Restrictions apply, see warning.
      * @param[in] engage True: engage brakes; false: release brakes.
-     * @param[in] groups Joint groups to apply the brake action to. Default to brake all.
      * @throw std::logic_error if the connected robot is not a medical model or is moving.
      * @throw std::runtime_error if failed to engage/release the brakes.
      * @note This function blocks until the brakes are successfully engaged/released.
      * @warning This function is accessible only if a) the connected robot is a medical model AND
      * b) the robot is not moving.
      */
-    void Brake(bool engage, const std::vector<JointGroup>& groups = {JointGroup::ARMS});
+    void Brake(bool engage);
 
     /**
      * @brief [Blocking] Switch the robot to a new control mode and wait for the mode transition
      * to finish.
-     * @param[in] mode Mode enum.
+     * @param[in] mode Control mode to switch to.
      * @throw std::invalid_argument if the requested mode is invalid or unlicensed.
      * @throw std::logic_error if robot is in an unknown control mode or is not operational.
      * @throw std::runtime_error if failed to transit the robot into the specified control mode
@@ -250,21 +258,10 @@ public:
     bool ClearFault(unsigned int timeout_sec = 30);
 
     /**
-     * @brief [Blocking] Run automatic recovery to bring joints that are outside the allowed
-     * position range back into allowed range.
-     * @throw std::runtime_error if failed to enter automatic recovery mode.
-     * @note Refer to user manual for more details.
-     * @note This function blocks until the automatic recovery process is finished.
-     * @warning A reboot is required after the automatic recovery process is finished.
-     * @see recovery().
-     */
-    void RunAutoRecovery();
-
-    /**
      * @brief [Blocking] Set values to global variables that already exist in the robot.
      * @param[in] global_vars A map of {global_var_name, global_var_value(s)}. Use int 1 and 0 to
      * represent booleans. For example, {{"camera_offset", {0.1, -0.2, 0.3}}, {"start_plan", 1}}.
-     * @throw std::length_error if [global_vars] is empty or too long to transmit in one request.
+     * @throw std::length_error if [global_vars] is empty.
      * @throw std::invalid_argument if any of the specified global variables does not exist.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note This function blocks until the global variables are successfully set.
@@ -282,28 +279,6 @@ public:
      * @see SetGlobalVariables().
      */
     std::map<std::string, FlexivDataTypes> global_variables() const;
-
-    /**
-     * @brief [Blocking] Lock/unlock external axes (if any) during primitive execution, direct
-     * joint control, and direct Cartesian control modes.
-     * @param[in] toggle True: the external axes are locked and will not move; false: the external
-     * axes are not locked and will move. By default, the external axes are locked.
-     * @throw std::runtime_error if failed to deliver the request to the connected robot.
-     * @note Applicable control modes: IDLE.
-     * @note This function blocks until the request is successfully delivered.
-     */
-    void LockExternalAxes(bool toggle);
-
-    /**
-     * @brief [Blocking] Sync/unsync the robot TCP's motion with the movement of the positioner (if
-     * any) during primitive execution.
-     * @param[in] toggle True: the motion sync is on; false: motion sync is off. By default, the
-     * motion sync is off.
-     * @throw std::runtime_error if failed to deliver the request to the connected robot.
-     * @note Only applicable to certain primitives that support motion sync with the positioner.
-     * @note This function blocks until the request is successfully delivered.
-     */
-    void SyncWithPositioner(bool toggle);
 
     /**
      * @brief [Non-blocking] Set the maximum tolerable percentage of real-time commands that arrived
@@ -437,14 +412,14 @@ public:
 
     //==================================== PRIMITIVE EXECUTION =====================================
     /**
-     * @brief [Blocking] Execute a primitive by specifying its name and parameters, which can be
-     * found in the [Flexiv Primitives documentation](https://www.flexiv.com/primitives/).
-     * @param[in] primitive_args A map of JointGroup to PrimitiveArgs, specifying the name and input
-     * parameters of a primitive to run on the corresponding joint group.
+     * @brief [Blocking] Execute primitive(s) on specified joint group(s).
+     * @param[in] primitive_args Primitive arguments mapped by joint group. Only existing
+     * single-arm joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] block_until_started Whether to wait for the commanded primitive to finish loading
      * and start execution before the function returns. Depending on the amount of computation
      * needed to get the primitive ready, the loading process typically takes no more than 200 ms.
-     * @throw std::length_error if [input_params] is too long to transmit in one request.
+     * @throw std::invalid_argument if [primitive_args] contains joint groups that are not
+     * existing single-arm joint groups in the connected robot.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot or the
      * robot is not operational.
@@ -464,9 +439,9 @@ public:
         const std::map<JointGroup, PrimitiveArgs>& primitive_args, bool block_until_started = true);
 
     /**
-     * @brief [Blocking] States data of the primitive(s) that are currently running on each joint
-     * group.
-     * @return A map of JointGroup to PrimitiveStates. Only contains joint groups that exist.
+     * @brief [Blocking] States data of the primitive(s) that are currently running.
+     * @return Primitive states data mapped by joint group. Only joint groups that are currently
+     * running primitives will be included.
      * @throw std::runtime_error if failed to get a reply from the connected robot.
      * @note This function blocks until a reply is received.
      */
@@ -474,10 +449,14 @@ public:
 
     //==================================== DIRECT JOINT CONTROL ====================================
     /**
-     * @brief [Non-blocking] Continuously stream joint torque commands to the robot.
-     * @param[in] cmds A map of JointGroup to RtJointTorqueCmd, specifying the joint torque commands
-     * for each joint group.
-     * @throw std::invalid_argument if size of any input vector does not match robot DoF.
+     * @brief [Non-blocking] Continuously stream joint torque commands of the specified joint
+     * group(s) to the robot. The commands are tracked by a high-performance joint torque
+     * controller.
+     * @param[in] cmds Real-time joint torque commands mapped by joint group. Only existing
+     * single-arm joint groups and external axis joint groups are accepted.
+     * @throw std::invalid_argument if [cmds] contains a joint group that is not an existing
+     * single-arm or external axis joint group in the connected robot, if size of any input vector
+     * does not match robot DoF, or [friction_comp_scale] is outside the valid range.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if the robot is not operational.
      * @note Applicable control modes: RT_JOINT_TORQUE.
@@ -488,11 +467,13 @@ public:
 
     /**
      * @brief [Non-blocking] Continuously stream joint position, velocity, and acceleration commands
-     * to the robot. The commands are tracked by either the joint impedance controller or the joint
-     * position controller, depending on the control mode.
-     * @param[in] cmds A map of JointGroup to RtJointPositionCmd, specifying the joint position,
-     * velocity, and acceleration commands for each joint group.
-     * @throw std::invalid_argument if size of any input vector does not match robot DoF.
+     * of the specified joint group(s) to the robot. The commands are tracked by either the joint
+     * impedance controller or the joint position controller, depending on the control mode.
+     * @param[in] cmds Real-time joint position-velocity-acceleration commands mapped by joint
+     * group. Only existing single-arm joint groups and external axis joint groups are accepted.
+     * @throw std::invalid_argument if [cmds] contains a joint group that is not an existing
+     * single-arm or external axis joint group in the connected robot, or if size of any input
+     * vector does not match robot DoF.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if the robot is not operational.
      * @note Applicable control modes: RT_JOINT_IMPEDANCE, RT_JOINT_POSITION.
@@ -503,14 +484,15 @@ public:
     void StreamJointPosition(const std::map<JointGroup, RtJointPositionCmd>& cmds);
 
     /**
-     * @brief [Non-blocking] Discretely send joint position and velocity commands to the robot. The
-     * robot's internal motion generator will smoothen the discrete commands, which are tracked by
-     * either the joint impedance controller or the joint position controller, depending on the
-     * control mode.
-     * @param[in] cmds A map of JointGroup to NrtJointPositionCmd, specifying the joint position and
-     * velocity commands for each joint group.
-     * @throw std::invalid_argument if size of any input vector does not match robot DoF, or
-     * [dq_max] or [ddq_max] contains any non-positive value.
+     * @brief [Non-blocking] Discretely send joint position and velocity commands of the specified
+     * joint group(s) to the robot. An internal motion generator will smoothen the discrete
+     * commands, which are then tracked by either the joint impedance controller or the joint
+     * position controller, depending on the control mode.
+     * @param[in] cmds Non-real-time joint position-velocity-acceleration commands mapped by joint
+     * group. Only existing single-arm joint groups and external axis joint groups are accepted.
+     * @throw std::invalid_argument if [cmds] contains a joint group that is not an existing
+     * single-arm or external axis joint group in the connected robot, if size of any input vector
+     * does not match robot DoF, or [dq_max] or [ddq_max] contains any non-positive value.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if the robot is not operational.
      * @note Applicable control modes: NRT_JOINT_IMPEDANCE, NRT_JOINT_POSITION.
@@ -524,14 +506,16 @@ public:
     /**
      * @brief [Blocking] Set impedance properties of the robot's joint motion controller used in
      * the joint impedance control modes.
-     * @param[in] group The joint group to set impedance properties for.
+     * @param[in] group The joint group to set impedance properties for. Only existing single-arm
+     * joint groups and external axis joint groups are accepted.
      * @param[in] K_q Joint motion stiffness: \f$ K_q \in \mathbb{R}^{n \times 1} \f$.
      * Setting motion stiffness of a joint axis to 0 will make this axis free-floating. Valid range:
      * [0, RobotInfo::K_q_nom]. Unit: \f$ [Nm/rad] \f$.
      * @param[in] Z_q Joint motion damping ratio: \f$ Z_q \in \mathbb{R}^{n \times 1} \f$.
      * Valid range: [0.3, 0.8]. The default value 0.7 will be used if left empty.
-     * @throw std::invalid_argument if [K_q] or [Z_q] contains any value outside the valid range or
-     * size of any input vector does not match robot DoF.
+     * @throw std::invalid_argument if [group] is not an existing single-arm or external axis joint
+     * group in the connected robot, if [K_q] or [Z_q] contains any value outside the valid range,
+     * or if size of any input vector does not match robot DoF.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_JOINT_IMPEDANCE, NRT_JOINT_IMPEDANCE.
@@ -546,12 +530,14 @@ public:
      * @brief [Blocking] Set maximum contact torques for the robot's joint motion controller used in
      * the joint impedance control modes. The controller will regulate its output to maintain
      * contact torques with the environment under the set values.
-     * @param[in] group The joint group to set maximum contact torques for.
+     * @param[in] group The joint group to set maximum contact torques for. Only existing single-arm
+     * joint groups and external axis joint groups are accepted.
      * @param[in] max_torques Maximum contact torques: \f$ tau_q \in \mathbb{R}^{n \times 1} \f$.
      * Valid range: [0, RobotInfo::tau_max]. Unit: \f$ [Nm] \f$.
-     * @throw std::invalid_argument if [max_torques] contains any value outside the valid range or
-     * its size does not match robot DoF.
-     * @throw std::logic_error if robot is not in an applicable control mode.
+     * @throw std::invalid_argument if [group] is not an existing single-arm or external axis joint
+     * group in the connected robot, if [max_torques] contains any value outside the valid range, or
+     * if its size does not match robot DoF.
+     * @throw std::logic_error if the robot is not in an applicable control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_JOINT_IMPEDANCE, NRT_JOINT_IMPEDANCE.
      * @note This function blocks until the request is successfully delivered.
@@ -561,12 +547,14 @@ public:
     /**
      * @brief [Blocking] Set inertia shaping scales for the robot's joint motion controller used in
      * the joint impedance control modes.
-     * @param[in] group The joint group to set inertia shaping scales for.
+     * @param[in] group The joint group to set inertia shaping scales for. Only existing single-arm
+     * joint groups and external axis joint groups are accepted.
      * @param[in] inertia_scales Inertia shaping scales: \f$ \sigma_q \in \mathbb{R}^{n \times 1}
      * \f$. Valid range: [0.75, 1.0]. The nominal (safe) value is 1.0, which means no shaping.
-     * @throw std::invalid_argument if [inertia_scales] contains any value outside the valid range
-     * or its size does not match robot DoF.
-     * @throw std::logic_error if robot is not in an applicable control mode.
+     * @throw std::invalid_argument if [group] is not an existing single-arm or external axis joint
+     * group in the connected robot, if [inertia_scales] contains any value outside the valid range,
+     * or if its size does not match robot DoF.
+     * @throw std::logic_error if the robot is not in an applicable control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_JOINT_IMPEDANCE, NRT_JOINT_IMPEDANCE.
      * @note This function blocks until the request is successfully delivered.
@@ -579,11 +567,14 @@ public:
 
     //================================== DIRECT CARTESIAN CONTROL ==================================
     /**
-     * @brief [Non-blocking] Continuously stream Cartesian motion and/or force commands for the
-     * robot to track using its unified motion-force controller, which allows doing force control in
-     * zero or more Cartesian axes and motion control in the rest axes.
-     * @param[in] cmds A map of JointGroup to RtCartesianCmd, specifying the Cartesian motion and/or
-     * force commands for each joint group.
+     * @brief [Non-blocking] Continuously stream Cartesian motion and/or force commands of the
+     * specified joint group(s) to the robot. The commands are tracked by a unified motion-force
+     * controller that allows force control in zero or more Cartesian axes and motion control in
+     * the other axes.
+     * @param[in] cmds Real-time Cartesian motion/force commands mapped by joint group. Only
+     * existing single-arm joint groups like ARM_1 and ARM_2 are accepted.
+     * @throw std::invalid_argument if [cmds] contains a joint group that is not an existing
+     * single-arm joint group in the connected robot.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if the robot is not operational.
      * @note Applicable control modes: RT_CARTESIAN_MOTION_FORCE.
@@ -609,13 +600,16 @@ public:
     void StreamCartesianMotionForce(const std::map<JointGroup, RtCartesianCmd>& cmds);
 
     /**
-     * @brief [Non-blocking] Discretely send Cartesian motion and/or force commands for the robot to
-     * track using its unified motion-force controller, which allows doing force control in zero or
-     * more Cartesian axes and motion control in the rest axes. The robot's internal motion
-     * generator will smoothen the discrete commands.
-     * @param[in] cmds A map of JointGroup to NrtCartesianCmd, specifying the Cartesian motion
-     * and/or force commands for each joint group.
-     * @throw std::invalid_argument if any of the last 4 input parameters is not positive.
+     * @brief [Non-blocking] Discretely send Cartesian motion and/or force commands of the specified
+     * joint group(s) to the robot. An internal motion generator will smoothen the discrete
+     * commands, which are then tracked by a unified motion-force controller that allows force
+     * control in zero or more Cartesian axes and motion control in the other axes. The robot's
+     * internal motion generator will smoothen the discrete commands.
+     * @param[in] cmds Non-real-time Cartesian motion/force commands mapped by joint group. Only
+     * existing single-arm joint groups like ARM_1 and ARM_2 are accepted.
+     * @throw std::invalid_argument if [cmds] contains a joint group that is not an existing
+     * single-arm joint group in the connected robot, or if any of the last 4 input parameters is
+     * not positive.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if the robot is not operational.
      * @note Applicable control modes: NRT_CARTESIAN_MOTION_FORCE, NRT_SUPER_PRIMITIVE.
@@ -638,9 +632,30 @@ public:
     void SendCartesianMotionForce(const std::map<JointGroup, NrtCartesianCmd>& cmds);
 
     /**
+     * @brief [Non-blocking] Discretely send Cartesian multi-waypoint motion and/or force commands
+     * for the robot to track using non-real-time super primitives.
+     * @param[in] cmds Non-real-time Cartesian multi-waypoint commands mapped by joint group. Only
+     * existing single-arm joint groups like ARM_1 and ARM_2 are accepted.
+     * @throw std::invalid_argument if [cmds] contains a joint group that is not an existing
+     * single-arm joint group in the connected robot, or if any waypoint list is empty or any
+     * waypoint's last 4 input parameters is not positive.
+     * @throw std::logic_error if the robot is not in the correct control mode.
+     * @throw std::runtime_error if the robot is not operational.
+     * @note Applicable control modes: NRT_SUPER_PRIMITIVE.
+     * @warning Same as Flexiv Elements, the target wrench is expressed as wrench sensed at TCP
+     * instead of wrench exerted by TCP. E.g. commanding f_z = +5 N will make the end-effector move
+     * towards -Z direction, so that upon contact, the sensed force will be +5 N.
+     * @see SetCartesianImpedance(), SetMaxContactWrench(), SetNullSpacePosture(),
+     * SetForceControlAxis(), SetForceControlFrame(), SetPassiveForceControl().
+     */
+    void SendCartesianMotionForceMultiWaypoint(
+        const std::map<JointGroup, NrtCartesianMultiWaypointCmd>& cmds);
+
+    /**
      * @brief [Blocking] Set impedance properties of the robot's Cartesian motion controller
      * used in the Cartesian motion-force control modes.
-     * @param[in] group The joint group to set Cartesian impedance for.
+     * @param[in] group The joint group to set Cartesian impedance for. Only existing single-arm
+     * joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] K_x Cartesian motion stiffness: \f$ K_x \in \mathbb{R}^{6 \times 1} \f$.
      * Setting motion stiffness of a motion-controlled Cartesian axis to 0 will make this axis
      * free-floating. Consists of \f$ \mathbb{R}^{3 \times 1} \f$ linear stiffness and \f$
@@ -650,7 +665,8 @@ public:
      * Consists of \f$ \mathbb{R}^{3 \times 1} \f$ linear damping ratio and \f$ \mathbb{R}^{3 \times
      * 1} \f$ angular damping ratio: \f$ [\zeta_x, \zeta_y, \zeta_z, \zeta_{Rx}, \zeta_{Ry},
      * \zeta_{Rz}]^T \f$. Valid range: [0.3, 0.8]. The nominal (safe) value is provided as default.
-     * @throw std::invalid_argument if [K_x] or [Z_x] contains any value outside the valid range.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, or if [K_x] or [Z_x] contains any value outside the valid range.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_CARTESIAN_MOTION_FORCE, NRT_CARTESIAN_MOTION_FORCE,
@@ -666,12 +682,14 @@ public:
      * @brief [Blocking] Set maximum contact wrench for the motion control part of the Cartesian
      * motion-force control modes. The controller will regulate its output to maintain contact
      * wrench (force and moment) with the environment under the set values.
-     * @param[in] group The joint group to set maximum contact wrench for.
+     * @param[in] group The joint group to set maximum contact wrench for. Only existing
+     * single-arm joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] max_wrench Maximum contact wrench (force and moment): \f$ F_{max} \in
      * \mathbb{R}^{6 \times 1} \f$. Consists of \f$ \mathbb{R}^{3 \times 1} \f$ maximum force and
      * \f$ \mathbb{R}^{3 \times 1} \f$ maximum moment: \f$ [f_x, f_y, f_z, m_x, m_y, m_z]^T \f$.
      * Unit: \f$ [N]:[Nm] \f$.
-     * @throw std::invalid_argument if [max_wrench] contains any negative value.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, or if [max_wrench] contains any negative value.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note The maximum contact wrench regulation only applies to the motion control part.
@@ -686,12 +704,14 @@ public:
     /**
      * @brief [Blocking] Set reference joint positions for the null-space posture control module
      * used in the Cartesian motion-force control modes.
-     * @param[in] group The joint group to set null-space posture for.
+     * @param[in] group The joint group to set null-space posture for. Only existing single-arm
+     * joint groups and external axis joint groups are accepted.
      * @param[in] ref_positions Reference joint positions for the null-space posture control:
      * \f$ q_{ns} \in \mathbb{R}^{n \times 1} \f$. Valid range: [RobotInfo::q_min,
      * RobotInfo::q_max]. Unit: \f$ [rad] \f$.
-     * @throw std::invalid_argument if [ref_positions] contains any value outside the valid
-     * range or its size does not match robot DoF.
+     * @throw std::invalid_argument if [group] is not an existing single-arm or external axis
+     * joint group in the connected robot, if [ref_positions] contains any value outside the valid
+     * range, or if its size does not match robot DoF.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_CARTESIAN_MOTION_FORCE, NRT_CARTESIAN_MOTION_FORCE,
@@ -713,7 +733,8 @@ public:
      * @brief [Blocking] Set weights of the three optimization objectives while computing the
      * robot's null-space posture. Change the weights to optimize robot performance for different
      * use cases.
-     * @param[in] group The joint group to set null-space objectives for.
+     * @param[in] group The joint group to set null-space objectives for. Only existing
+     * single-arm joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] linear_manipulability Increase this weight to improve the robot's capability to
      * translate freely in Cartesian space, i.e. a broader range of potential translation movements.
      * Valid range: [0.0, 1.0].
@@ -722,7 +743,8 @@ public:
      * range: [0.0, 1.0].
      * @param[in] ref_positions_tracking Increase this weight to make the robot track closer to the
      * reference joint positions specified using SetNullSpacePosture(). Valid range: [0.1, 1.0].
-     * @throw std::invalid_argument if any of the input parameters is outside its valid range.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, or if any of the input parameters is outside its valid range.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note The default value is provided for each parameter.
@@ -738,14 +760,16 @@ public:
     /**
      * @brief [Blocking] Set Cartesian axes to enable force control while in the Cartesian
      * motion-force control modes. Axes not enabled for force control will be motion-controlled.
-     * @param[in] group The joint group to set force control axes for.
+     * @param[in] group The joint group to set force control axes for. Only existing single-arm
+     * joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] enabled_axes Flags to enable/disable force control for certain Cartesian axes in
      * the force control reference frame (configured by SetForceControlFrame()). The axis order is
      * \f$ [X, Y, Z, Rx, Ry, Rz] \f$.
      * @param[in] max_linear_vel For linear Cartesian axes that are enabled for force control, limit
      * the moving velocity to these values as a protection mechanism in case of contact loss. The
      * axis order is \f$ [X, Y, Z] \f$. Valid range: [0.005, 2.0]. Unit: \f$ [m/s] \f$.
-     * @throw std::invalid_argument if [max_linear_vel] contains any value outside the valid range.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, or if [max_linear_vel] contains any value outside the valid range.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_CARTESIAN_MOTION_FORCE, NRT_CARTESIAN_MOTION_FORCE,
@@ -763,7 +787,8 @@ public:
      * @brief [Blocking] Set reference frame for force control while in the Cartesian motion-force
      * control modes. The force control frame is defined by specifying its transformation with
      * regard to the root coordinate.
-     * @param[in] group The joint group to set force control frame for.
+     * @param[in] group The joint group to set force control frame for. Only existing single-arm
+     * joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] root_coord Reference coordinate of [T_in_root].
      * @param[in] T_in_root Transformation from [root_coord] to the user-defined force control
      * frame: \f$ ^{root}T_{force} \in \mathbb{R}^{7 \times 1} \f$. Consists of \f$ \mathbb{R}^{3
@@ -772,6 +797,8 @@ public:
      * then the force control frame will also be fixed; if root coordinate is a moving one (e.g.
      * TCP), then the force control frame will also be moving with the root coordinate. An identity
      * transformation is provided as default.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, or if [root_coord] is invalid.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: RT_CARTESIAN_MOTION_FORCE, NRT_CARTESIAN_MOTION_FORCE,
@@ -799,9 +826,12 @@ public:
      * control modes. When enabled, an open-loop force controller will be used to feed forward the
      * target wrench, i.e. passive force control. When disabled, a closed-loop force controller will
      * be used to track the target wrench, i.e. active force control.
-     * @param[in] group The joint group to toggle passive force control for.
+     * @param[in] group The joint group to toggle passive force control for. Only existing
+     * single-arm joint groups like ARM_1 and ARM_2 are accepted.
      * @param[in] is_enabled True: enable; false: disable. By default, passive force control is
      * disabled and active force control is used.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot.
      * @throw std::logic_error if the robot is not in the correct control mode.
      * @throw std::runtime_error if failed to deliver the request to the connected robot.
      * @note Applicable control modes: IDLE.
@@ -821,7 +851,7 @@ public:
     //======================================== IO CONTROL ========================================
     /**
      * @brief [Blocking] Set one or more digital output ports, including 16 on the control box plus
-     * 2 inside the wrist connector.
+     * 2 inside each wrist connector.
      * @param[in] digital_outputs A map of {port_index, port_value}. For [port_index], the valid
      * range is [0, 17]. For [port_value], true: set port high, false: set port low. For example,
      * {{1, true}, {3, false}, {10, true}}.
@@ -833,11 +863,19 @@ public:
 
     /**
      * @brief [Non-blocking] Current reading from all digital input ports, including 16 on the
-     * control box plus 2 inside the wrist connector.
+     * control box plus 2 in each wrist connector.
      * @return A boolean array whose index corresponds to that of the digital input ports.
      * True: port high; false: port low.
      */
     std::array<bool, kIOPorts> digital_inputs() const;
+
+    /**
+     * @brief [Non-blocking] Current reading from all digital output ports, including 16 on the
+     * control box plus 2 in each wrist connector.
+     * @return A boolean array whose index corresponds to that of the digital output ports.
+     * True: port high; false: port low.
+     */
+    std::array<bool, kIOPorts> digital_outputs() const;
 
 private:
     class Impl;
@@ -853,7 +891,6 @@ private:
     friend class WorkCoord;
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_ROBOT_HPP_ */

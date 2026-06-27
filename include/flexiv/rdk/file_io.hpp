@@ -8,8 +8,7 @@
 
 #include "robot.hpp"
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
 
 /**
  * @class FileIO
@@ -49,7 +48,6 @@ public:
      * @param[in] file_name Full name of the trajectory file to upload, including the extension.
      * E.g. PolishSpiral.traj. Do not include the directory path here.
      * @throw std::invalid_argument if failed to find or load the specified file.
-     * @throw std::length_error if the file is too large to transfer. Maximum file size is 1 MB.
      * @throw std::runtime_error if failed to upload the file.
      * @note This function blocks until the file is successfully uploaded.
      */
@@ -88,8 +86,6 @@ public:
      * @throw std::invalid_argument if failed to find the specified directory or the project files
      * are incomplete.
      * @throw std::logic_error if robot is not in the correct control mode.
-     * @throw std::length_error if any of the project files is too large to transfer. Maximum file
-     * size is 1 MB.
      * @throw std::runtime_error if failed to upload the project.
      * @note Applicable control modes: IDLE.
      * @note This function blocks until the project is successfully uploaded.
@@ -127,7 +123,6 @@ private:
     std::unique_ptr<Impl> pimpl_;
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_FILE_IO_HPP_ */
