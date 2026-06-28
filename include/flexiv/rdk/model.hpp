@@ -10,8 +10,36 @@
 #include <Eigen/Eigen>
 #include <memory>
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
+
+/**
+ * @struct IKParams
+ * @brief Per-joint-group IK input parameters for SolveConstrainedIK().
+ */
+struct IKParams
+{
+    /** Cartesian pose to be solved. */
+    std::array<double, kPoseSize> cartesian_pose = {};
+
+    /** Seed joint positions for IK solver. Unit: [rad]. */
+    std::vector<double> seed_q = {};
+
+    /** Whether to only constrain Cartesian position and allow orientation to vary. */
+    bool free_orientation = false;
+};
+
+/**
+ * @struct IKResult
+ * @brief Result from SolveConstrainedIK().
+ */
+struct IKResult
+{
+    /** Whether the IK solution is successful. */
+    bool success = false;
+
+    /** Solved joint positions by active joint group. Unit: \f$ [rad] \f$. */
+    std::map<JointGroup, std::vector<double>> solved_q = {};
+};
 
 /**
  * @class Model
@@ -61,20 +89,20 @@ public:
     /**
      * @brief [Non-blocking] Update the configuration (posture) of the locally-stored robot model so
      * that the locally computed functions return results based on the updated configuration.
-     * @param[in] positions Current joint positions of all joint groups combined and matching the
-     * order of joint_names(): \f$ q \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad] \f$.
-     * @param[in] velocities Current joint velocities of all joint groups combined and matching the
-     * order of joint_names(): \f$ \dot{q} \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad/s] \f$.
-     * @throw std::invalid_argument if size of any input vector does not match robot DoF.
+     * @param[in] full_q Current joint positions of the whole robot and matching the order of
+     * joint_names(): \f$ q \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad] \f$.
+     * @param[in] full_dq Current joint velocities of the whole robot and matching the order of
+     * joint_names(): \f$ \dot{q} \in \mathbb{R}^{n \times 1} \f$. Unit: \f$ [rad/s] \f$.
+     * @throw std::invalid_argument if size of any input vector does not match robot full DoF.
      */
-    void Update(const std::vector<double>& positions, const std::vector<double>& velocities);
+    void Update(const std::vector<double>& full_q, const std::vector<double>& full_dq);
 
     //========================================== DYNAMICS ==========================================
     /**
      * @brief [Non-blocking] Compute the time derivative of Jacobian matrix at the specified frame
      * w.r.t. world frame.
      * @param[in] link_name Name of the link whose frame is the specified one.
-     * @return Time derivative of the Jacobian matrix: \f$ ^{0}\dot{J_i} \in \mathbb{R}^{m \times n}
+     * @return Time derivative of the Jacobian matrix: \f$ ^{O}\dot{J_i} \in \mathbb{R}^{m \times n}
      * \f$.
      * @throw std::invalid_argument if [link_name] does not exist.
      * @note Call Update() before this function.
@@ -119,7 +147,7 @@ public:
     /**
      * @brief [Non-blocking] Compute the Jacobian matrix at the specified frame w.r.t. world frame.
      * @param[in] link_name Name of the link whose frame is the specified one.
-     * @return Jacobian matrix: \f$ ^{0}J_i \in \mathbb{R}^{m \times n} \f$.
+     * @return Jacobian matrix: \f$ ^{O}J_i \in \mathbb{R}^{m \times n} \f$.
      * @throw std::invalid_argument if [link_name] does not exist.
      * @note Call Update() before this function.
      * @see link_names().
@@ -130,7 +158,7 @@ public:
      * @brief [Non-blocking] Compute the transformation matrix of the specified frame w.r.t. world
      * frame.
      * @param[in] link_name Name of the link whose frame is the specified one.
-     * @return Transformation matrix: \f$ ^{0}T_i \in \mathbb{R}^{4 \times 4} \f$.
+     * @return Transformation matrix: \f$ ^{O}T_i \in \mathbb{R}^{4 \times 4} \f$.
      * @throw std::invalid_argument if [link_name] does not exist.
      * @note Call Update() before this function.
      * @see link_names().
@@ -167,38 +195,38 @@ public:
     size_t SyncKinematicsYAML(const std::string& template_yaml_path);
 
     /**
-     * @brief [Blocking] Check if a Cartesian pose is reachable. If yes, also return an IK solution
-     * of the corresponding joint positions.
-     * @param[in] pose Cartesian pose to be checked.
-     * @param[in] seed_positions Joint positions to be used as the seed for solving IK.
-     * @param[in] free_orientation Only constrain position and allow orientation to move freely.
-     * @return A pair of {is_reachable, ik_solution}.
-     * @throw std::invalid_argument if size of [seed_positions] does not match robot DoF.
+     * @brief [Blocking] Solve constrained IK using one or more active joint groups.
+     * @param[in] ik_params_by_group IK input parameters mapped by active joint group. Joint groups
+     * not included in this map are treated as inactive. Only single-arm joint groups like ARM_1 and
+     * ARM_2 are accepted.
+     * @return Solver result. [solved_q] contains one entry per requested active joint group.
+     * @throw std::invalid_argument if input map is empty, if any joint group is not an existing
+     * single-arm joint group, or if any [seed_q] size does not match DoF of its joint group.
      * @throw std::runtime_error if failed to get a reply from the connected robot.
      * @note This function blocks until a reply is received.
      */
-    std::pair<bool, std::vector<double>> reachable(const std::array<double, kPoseSize>& pose,
-        const std::vector<double>& seed_positions, bool free_orientation) const;
+    IKResult SolveConstrainedIK(const std::map<JointGroup, IKParams>& ik_params_by_group);
 
     /**
-     * @brief [Blocking] Score of the robot's current configuration (posture), calculated from the
-     * manipulability measurements.
-     * @return A pair of {translation_score, orientation_score}. The quality of configuration based
-     * on score is mapped as: poor = [0, 20), medium = [20, 40), good = [40, 100].
+     * @brief [Blocking] Score of each joint group's current configuration (posture), calculated
+     * from the manipulability measurements.
+     * @return Configuration score mapped by joint group as {translation_score,
+     * orientation_score}. The quality of configuration based on the score can be interpreted as:
+     * poor = [0, 20), medium = [20, 40), good = [40, 100].
      * @throw std::runtime_error if failed to get a reply from the connected robot.
      * @note This function blocks until a reply is received.
      * @warning A poor configuration score means the robot is near or at singularity, which can lead
      * to degraded Cartesian performance. Use configuration with high scores for better
      * manipulability and task results.
      */
-    std::pair<double, double> configuration_score() const;
+    std::map<JointGroup, std::pair<double, double>> configuration_score() const;
 
     //======================================= MULTI-CONTACT ========================================
     /**
      * @brief [Non-blocking] Estimated multi-contact forces applied on each link of applicable joint
      * groups, calculated using the force-torque sensors installed in every joint of the robot.
-     * @return A map of JointGroup to \f$ f_c \in \mathbb{R}^{n \times 1} \f$. Each vector element
-     * is a \f$ \mathbb{R}^{3 \times 1} \f$ force vector w.r.t. the corresponding link frame. Only
+     * @return \f$ f_c \in \mathbb{R}^{n \times 1} \f$ mapped by joint group. Each vector element is
+     * a \f$ \mathbb{R}^{3 \times 1} \f$ force vector w.r.t. the corresponding link frame. Only
      * contains joint groups that are capable of multi-contact estimation.
      * @warning This data is only available on certain robot models. An empty vector will be
      * returned if the connected robot does not support multi-contact estimation.
@@ -208,9 +236,9 @@ public:
     /**
      * @brief [Non-blocking] Estimated multi-contact positions on each link of applicable joint
      * groups, calculated using the force-torque sensors installed in every joint of the robot.
-     * @return A map of JointGroup to \f$ p_c \in \mathbb{R}^{n \times 1} \f$. Each vector element
-     * is a \f$ \mathbb{R}^{3 \times 1} \f$ position vector w.r.t. the corresponding link frame.
-     * Only contains joint groups that are capable of multi-contact estimation.
+     * @return \f$ p_c \in \mathbb{R}^{n \times 1} \f$ mapped by joint group. Each vector element is
+     * a \f$ \mathbb{R}^{3 \times 1} \f$ position vector w.r.t. the corresponding link frame. Only
+     * contains joint groups that are capable of multi-contact estimation.
      * @warning This data is only available on certain robot models. An empty vector will be
      * returned if the connected robot does not support multi-contact estimation.
      */
@@ -221,7 +249,6 @@ private:
     std::unique_ptr<Impl> pimpl_;
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_MODEL_HPP_ */

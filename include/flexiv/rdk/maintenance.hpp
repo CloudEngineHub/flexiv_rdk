@@ -8,8 +8,7 @@
 
 #include "robot.hpp"
 
-namespace flexiv {
-namespace rdk {
+namespace flexiv::rdk {
 
 /**
  * @class Maintenance
@@ -36,8 +35,9 @@ public:
      * q_cali \in \mathbb{R}^{n \times 1} \f$. If left empty, the robot will use the recommended
      * upright posture for calibration. Otherwise the specified posture will be used, which is NOT
      * recommended. Valid range: [RobotInfo::q_min, RobotInfo::q_max]. Unit: \f$ [rad] \f$.
-     * @throw std::invalid_argument if [cali_posture] contains any value outside the valid range, or
-     * its size does not match robot DoF.
+     * @throw std::invalid_argument if [group] is not an existing single-arm joint group in the
+     * connected robot, if [cali_posture] contains any value outside the valid range, or if its size
+     * does not match robot DoF.
      * @throw std::logic_error if robot is not in the correct control mode.
      * @throw std::runtime_error if fault occurred during the calibration or failed to save the
      * calibration result.
@@ -59,7 +59,6 @@ private:
     std::unique_ptr<Impl> pimpl_;
 };
 
-} /* namespace rdk */
-} /* namespace flexiv */
+} /* namespace flexiv::rdk */
 
 #endif /* FLEXIV_RDK_MAINTENANCE_HPP_ */

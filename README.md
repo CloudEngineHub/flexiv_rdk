@@ -1,6 +1,7 @@
 # Flexiv RDK
 
-![CMake Badge](https://github.com/flexivrobotics/flexiv_rdk/actions/workflows/cmake.yml/badge.svg)
+![Cpp Badge](https://github.com/flexivrobotics/flexiv_rdk/actions/workflows/cpp.yml/badge.svg)
+![Python Badge](https://github.com/flexivrobotics/flexiv_rdk/actions/workflows/python.yml/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 
 Flexiv RDK (Robotic Development Kit), a key component of the Flexiv Robotic Software Platform, is a powerful development toolkit that enables the users to create complex and customized robotic applications using APIs that provide both low-level real-time (RT) and high-level non-real-time (NRT) access to Flexiv robots.
@@ -34,7 +35,8 @@ On all supported platforms, the Python package of RDK and its dependencies for a
 
     python3.x -m pip install numpy spdlog flexivrdk
 
-Note: replace `3.x` with a specific Python version.
+> [!NOTE]
+> Replace `3.x` with a specific Python version.
 
 ### Use the installed Python package
 
@@ -42,9 +44,9 @@ After the `flexivrdk` Python package is installed, it can be imported from any P
 
     python3.x
     import flexivrdk
-    robot = flexivrdk.Robot("Rizon4-123456")
+    robot = flexivrdk.Robot("Enlight-L-123456")
 
-The program will start searching for a robot with serial number `Rizon4-123456`, and will exit after a couple of seconds if the specified robot is not found in the local network.
+The program will start searching for a robot with serial number `Enlight-L-123456`, and will exit after a couple of seconds if the specified robot is not found in the local network.
 
 ### Run example Python scripts
 
@@ -55,7 +57,7 @@ To run an example Python script in this repo:
 
 For example:
 
-    python3.10 ./basics1_display_robot_states.py Rizon4-123456
+    python3.10 ./basics1_display_robot_states.py Enlight-L-123456
 
 ## Quick Start - C++
 
@@ -89,7 +91,7 @@ For example:
    * MSVC ... C++ x64/x86 build tools (Latest)
    * C++ CMake tools for Windows
    * Windows 10 SDK or Windows 11 SDK, depending on your actual Windows version
-2. Install CMake: Download `cmake-3.x.x-windows-x86_64.msi` from [CMake download page](https://cmake.org/download/) and install the msi file. The minimum required version is 3.16.3. **Add CMake to system PATH** when prompted, so that `cmake` and `cmake-gui` command can be used from Command Prompt or a bash emulator.
+2. Install CMake: Download `cmake-3.x.x-windows-x86_64.msi` from [CMake download page](https://cmake.org/download/) and install the msi file. The minimum required version is 3.22.1. **Add CMake to system PATH** when prompted, so that `cmake` and `cmake-gui` command can be used from Command Prompt or a bash emulator.
 3. Install bash emulator: Download and install [Git for Windows](https://git-scm.com/install/windows), which comes with a bash emulator Git Bash. The following steps are to be carried out in this bash emulator.
 
 #### QNX
@@ -118,7 +120,8 @@ The following steps are mostly the same on all supported platforms, with some va
        source <qnx-sdp-dir>/qnxsdp-env.sh
        bash build_and_install_dependencies.sh ~/rdk_install $(nproc) <path-to-qnx-toolchain-file>
 
-   Note: the QNX toolchain files are located under `flexiv_rdk/cmake` directory, with one for x86_64 target and one for aarch64 target.
+   > [!NOTE]
+   > The QNX toolchain files are located under `flexiv_rdk/cmake` directory, with one for x86_64 target and one for aarch64 target.
 
 3. In the same Terminal, configure the `flexiv_rdk` CMake project:
 
@@ -133,7 +136,8 @@ The following steps are mostly the same on all supported platforms, with some va
 
        cmake .. -DCMAKE_INSTALL_PREFIX=~/rdk_install -DCMAKE_TOOLCHAIN_FILE=<path-to-qnx-toolchain-file>
 
-   Note: `-D` followed by `CMAKE_INSTALL_PREFIX` sets the absolute path of the installation directory, which should be the one chosen in step 1.
+   > [!NOTE]
+   > `-D` followed by `CMAKE_INSTALL_PREFIX` sets the absolute path of the installation directory, which should be the one chosen in step 1.
 
 4. Install `flexiv_rdk` C++ library to `CMAKE_INSTALL_PREFIX` path, which may or may not be globally discoverable by CMake depending on the location:
 
@@ -157,28 +161,45 @@ On QNX:
     cmake .. -DCMAKE_PREFIX_PATH=~/rdk_install -DCMAKE_TOOLCHAIN_FILE=<path-to-qnx-toolchain-file>
     cmake --build . --config Release -j 4
 
-Note: `-D` followed by `CMAKE_PREFIX_PATH` tells the user project's CMake where to find the installed C++ library. This argument can be skipped if the RDK library and its dependencies are installed to a globally discoverable location.
+> [!NOTE]
+> `-D` followed by `CMAKE_PREFIX_PATH` tells the user project's CMake where to find the installed C++ library. This argument can be skipped if the RDK library and its dependencies are installed to a globally discoverable location.
 
 ### Run example C++ programs
 
-To run an example C++ program compiled during the previous step:
+The steps to run an example C++ program compiled during the previous step vary by OS. 
+
+> [!NOTE]
+> - Replace `<example-name>` with the actual example program to be executed.
+> - Replace `<robot-sn>` with the actual serial number of the robot, for example `Enlight-L-123456`.
+> - Root privilege is required if the real-time scheduler API `flexiv::rdk::Scheduler` is used in the program.
+
+#### Linux and macOS
+
+On UNIX systems, the install location of the dependencies' shared libraries is baked into the executable as an RPATH, so they are found automatically at runtime with no extra setup:
 
     cd flexiv_rdk/example/build
+    ./<example-name> <robot-sn>
 
-On Linux and macOS:
+#### Windows - Command Prompt
 
-    LD_LIBRARY_PATH=~/rdk_install/lib ./<example-name> <robot-sn>
+Windows does not support RPATH, so the install location of the dependencies' shared libraries must be explicitly specified by adding the `bin` folder under the installation directory to `PATH` for the current session, before executing the example programs:
 
-On Windows (Command Prompt):
-
+    cd flexiv_rdk\example\build
     set PATH=%USERPROFILE%\rdk_install\bin;%PATH%
     Release\<example-name>.exe <robot-sn>
 
-Note:
+Alternatively, add the `bin` folder to the system or user `PATH` environment variable to make this change permanent instead of per-session.
 
-1. Replace `<robot-sn>` with the actual serial number of the robot, for example `Rizon4-123456`.
-2. `LD_LIBRARY_PATH` or `PATH` is used to specify where the shared libraries of the dependencies are installed.
-3. Root privilege is required if the real-time scheduler API `flexiv::rdk::Scheduler` is used in the program.
+> [!WARNING]
+> If the `bin` folder is not on `PATH`, the program will exit immediately with no error message on Command Prompt, because Windows terminates the process with exit code `0xC0000135` (`STATUS_DLL_NOT_FOUND`) before any output is produced. Run `echo %ERRORLEVEL%` right after to confirm this is the cause (it prints `-1073741515` on failure, `0` on success).
+
+#### Windows - bash emulator (such as Git Bash)
+
+The same rule applies in a bash emulator, but using bash syntax to set `PATH` for the current session (note the use of `/` as path separator and `:` to delimit entries):
+
+    cd flexiv_rdk/example/build
+    export PATH="$USERPROFILE/rdk_install/bin:$PATH"
+    ./Release/<example-name>.exe <robot-sn>
 
 ## API Documentation
 

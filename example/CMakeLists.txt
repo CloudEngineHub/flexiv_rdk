@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(flexiv_rdk-examples)
 
+# CMake >= 3.30 warns for FindBoost behavior unless CMP0167 is explicitly set.
+if(POLICY CMP0167)
+  cmake_policy(SET CMP0167 OLD)
+endif()
+
 # Show verbose build info
 SET(CMAKE_VERBOSE_MAKEFILE ON)
 
@@ -21,10 +26,9 @@ set(EXAMPLE_LIST
   basics4_plan_execution
   basics5_zero_force_torque_sensors
   basics6_gripper_control
-  basics7_auto_recovery
-  basics8_update_robot_tool
-  basics9_global_variables
-  basics10_logging_behavior
+  basics7_update_robot_tool
+  basics8_global_variables
+  basics9_logging_behavior
   intermediate7_robot_dynamics
 )
 
@@ -48,8 +52,8 @@ foreach(example ${EXAMPLE_LIST})
   add_executable(${example} ${example}.cpp)
   target_link_libraries(${example} flexiv::flexiv_rdk)
 
-  # C++17 required
+  # C++20 required
   set_target_properties(${example} PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON)
 endforeach()

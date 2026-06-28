@@ -44,7 +44,7 @@ void PrintHelp()
 {
     // clang-format off
     std::cout << "Required arguments: [robot_sn]" << std::endl;
-    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456" << std::endl;
+    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456" << std::endl;
     std::cout << "Optional arguments: [--hold]" << std::endl;
     std::cout << "    --hold: robot holds current joint positions, otherwise do a sine-sweep" << std::endl;
     std::cout << std::endl;
@@ -84,11 +84,16 @@ void PeriodicTask(rdk::Robot& robot, const std::string& motion_type,
                 }
             }
 
+            // Compute target joint torque using outer position loop (impedance)
             std::vector<double> target_torque(target_pos.size());
-            const auto& states = all_states.at(group);
-            for (size_t i = 0; i < target_torque.size(); ++i) {
-                target_torque[i] = kImpedanceKp[i] * (target_pos[i] - states.q[i])
-                                   - kImpedanceKd[i] * states.dtheta[i];
+            // Set target torque for external axis to zero, as the demo impedance gains are defined
+            // for only the arms
+            if (group != rdk::JointGroup::EXT_AXIS) {
+                const auto& states = all_states.at(group);
+                for (size_t i = 0; i < target_torque.size(); ++i) {
+                    target_torque[i] = kImpedanceKp[i] * (target_pos[i] - states.q[i])
+                                       - kImpedanceKd[i] * states.dtheta[i];
+                }
             }
 
             rt_cmds[group] = rdk::RtJointTorqueCmd(target_torque, true, true);
@@ -114,7 +119,7 @@ int main(int argc, char* argv[])
         PrintHelp();
         return 1;
     }
-    // Serial number of the robot to connect to. Remove any space, for example: Rizon4s-123456
+    // Serial number of the robot to connect to
     std::string robot_sn = argv[1];
 
     // Print description
@@ -151,9 +156,9 @@ int main(int argc, char* argv[])
             spdlog::info("Fault on the connected robot is cleared");
         }
 
-        // Enable the robot, make sure the E-stop is released before enabling
-        spdlog::info("Enabling robot ...");
-        robot.Enable();
+        // Servo on the robot, make sure the E-stop is released
+        spdlog::info("Servo on the robot ...");
+        robot.ServoOn();
 
         // Wait for the robot to become operational
         while (!robot.operational()) {
@@ -163,22 +168,29 @@ int main(int argc, char* argv[])
 
         // Move robot to home pose
         spdlog::info("Moving to home pose");
-        robot.SwitchMode(rdk::Mode::NRT_PLAN_EXECUTION);
-        robot.ExecutePlan("PLAN-Home");
-        // Wait for the plan to finish
-        while (robot.busy()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
+        robot.Home();
 
         // Real-time Joint Torque Control
         // =========================================================================================
+        // Direct joint control can be executed by single-arm joint groups and the external axis
+        auto exe_groups = robot.info().single_arm_groups;
+        if (exe_groups.empty()) {
+            throw std::runtime_error("No single-arm joint group found on the connected robot");
+        }
+        // The external axis joint group (if it exists) also supports direct joint control
+        if (robot.info().all_groups.contains(rdk::JointGroup::EXT_AXIS)) {
+            exe_groups.emplace(
+                rdk::JointGroup::EXT_AXIS, robot.info().all_groups.at(rdk::JointGroup::EXT_AXIS));
+        }
+
         // Switch to real-time joint torque control mode
         robot.SwitchMode(rdk::Mode::RT_JOINT_TORQUE);
 
         // Set initial joint positions
         std::map<rdk::JointGroup, std::vector<double>> all_init_pos;
-        for (const auto& [group, states] : robot.states()) {
-            all_init_pos[group] = states.q;
+        const auto robot_states = robot.states();
+        for (const auto& [group, _] : exe_groups) {
+            all_init_pos[group] = robot_states.at(group).q;
             spdlog::info("[{}] Initial joint positions: {}", rdk::kJointGroupNames.at(group),
                 rdk::utility::Vec2Str(all_init_pos.at(group)));
         }

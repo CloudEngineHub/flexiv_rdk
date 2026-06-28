@@ -24,7 +24,7 @@ def main():
     # Required arguments
     argparser.add_argument(
         "robot_sn",
-        help="Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456",
+        help="Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456",
     )
     argparser.add_argument(
         "frequency", help="Command frequency, 1 to 100 [Hz]", type=int
@@ -66,9 +66,9 @@ def main():
                 return 1
             logger.info("Fault on the connected robot is cleared")
 
-        # Enable the robot, make sure the E-stop is released before enabling
-        logger.info("Enabling robot ...")
-        robot.Enable()
+        # Servo on the robot, make sure the E-stop is released
+        logger.info("Servo on the robot ...")
+        robot.ServoOn()
 
         # Wait for the robot to become operational
         while not robot.operational():
@@ -78,16 +78,23 @@ def main():
 
         # Move robot to home pose
         logger.info("Moving to home pose")
-        robot.SwitchMode(mode.NRT_PLAN_EXECUTION)
-        robot.ExecutePlan("PLAN-Home")
-        # Wait for the plan to finish
-        while robot.busy():
-            time.sleep(1)
+        robot.Home()
 
         # Non-real-time Joint Impedance Control
         # ==========================================================================================
         # Switch to non-real-time joint impedance control mode
         robot.SwitchMode(mode.NRT_JOINT_IMPEDANCE)
+
+        # Direct joint control can be executed by single-arm joint groups and the external axis
+        single_arm_groups = robot.info().single_arm_groups
+        if not single_arm_groups:
+            raise RuntimeError("No single-arm joint group found on the connected robot")
+        # The external axis joint group (if it exists) also supports direct joint control
+        exe_groups = dict(single_arm_groups)
+        if flexivrdk.JointGroup.EXT_AXIS in robot.info().all_groups:
+            exe_groups[flexivrdk.JointGroup.EXT_AXIS] = robot.info().all_groups[
+                flexivrdk.JointGroup.EXT_AXIS
+            ]
 
         period = 1.0 / frequency
         loop_counter = 0
@@ -97,8 +104,9 @@ def main():
 
         # Use current robot joint positions as initial positions
         all_init_pos = {}
-        for group, states in robot.states().items():
-            all_init_pos[group] = states.q.copy()
+        robot_states = robot.states()
+        for group in exe_groups:
+            all_init_pos[group] = robot_states[group].q.copy()
             logger.info(
                 f"[{flexivrdk.kJointGroupNames[group]}] Initial joint positions: {all_init_pos[group]}"
             )
@@ -120,16 +128,21 @@ def main():
 
             # Reduce stiffness to half of nominal values after 5 seconds
             if loop_counter == 5 / period:
-                new_Kq = np.multiply(robot.info().K_q_nom, 0.5).tolist()
-                for group in all_init_pos:
+                for group in single_arm_groups:
+                    new_Kq = np.multiply(robot.info().K_q_nom[group], 0.5).tolist()
                     robot.SetJointImpedance(group, new_Kq)
-                logger.info(f"Joint stiffness set to {new_Kq}")
+                    logger.info(
+                        f"[{flexivrdk.kJointGroupNames[group]}] Joint stiffness set to: {new_Kq}"
+                    )
 
-            # Reset impedance properties to nominal values after another 5 seconds
+            # Reset stiffness to nominal values after another 5 seconds
             if loop_counter == 10 / period:
-                for group in all_init_pos:
-                    robot.SetJointImpedance(group, robot.info().K_q_nom)
-                logger.info("Joint impedance properties are reset")
+                for group in single_arm_groups:
+                    nominal_Kq = robot.info().K_q_nom[group]
+                    robot.SetJointImpedance(group, nominal_Kq)
+                    logger.info(
+                        f"[{flexivrdk.kJointGroupNames[group]}] Joint stiffness reset to nominal: {nominal_Kq}"
+                    )
 
             # Send commands
             cmds = {}

@@ -5,28 +5,28 @@
 Comprehensive primitive-only reference script for code-generation agents.
 
 Primitives demonstrated (in order):
-  1. Home          - send robot to home with custom optional target joint positions.
-  2. ZeroFTSensor  - conditionally zero force/torque sensors when FT sensor exists.
-  3. MoveJ         - joint-space move with waypoints and joint-velocity scaling.
-  4. MoveL         - Cartesian linear move in WORLD frame with velocity, blending (zoneRadius).
-  5. MoveL         - multi-waypoint sweep in WORLD frame.
-  6. Home          - return to home before TCP-frame relative move.
-  7. MoveL         - relative move in TCP frame (TRAJ::START), orientation-only rotation.
-  8. MoveJ         - return to upright posture (all joints 0).
-  9. Home          - return to home.
+    1. Home          - move robot to the platform-defined home posture.
+    2. ZeroFTSensor  - zero force/torque sensors for all active single-arm groups.
+    3. MoveJ         - joint-space move with waypoints and joint-velocity scaling.
+    4. MoveL         - Cartesian linear move in WORLD frame with velocity, blending (zoneRadius).
+    5. MoveL         - multi-waypoint sweep in WORLD frame.
+    6. Home          - return to home before TCP-frame relative move.
+    7. MoveL         - relative move in TCP frame (TRAJ::START), orientation-only rotation.
+    8. MoveJ         - return to upright posture (all joints 0).
+    9. Home          - return to home.
 
 Key patterns shown:
-  - Fault clear, enable, wait operational, mode switch (essential setup).
-  - exec_prim() wrapper accepts group-indexed PrimitiveArgs for per-group primitives.
-  - Transition keys must be looked up per primitive from Flexiv primitive documentation:
-      https://primitive.flexiv.com/primitives/en/3.11/rizon4/index.html
-  - Reading tcp_pose from each joint group to extract live orientation.
-  - Converting quaternion to Euler ZYX degrees using utility.quat2eulerZYX for MoveL orientation.
-  - ZeroFTSensor is gated by robot.info().has_FT_sensor.
-  - MoveL with optional velocity, zoneRadius blending, and waypoints.
-  - MoveJ with optional waypoints list and jntVelScale.
-  - All JPos calls use 7-element arm-joint list; second (external-axis) argument is optional.
-  - All Coord calls use positional args: (position, orientation_eulerZYX_deg, ref_frame_list).
+    - Fault clear, enable, wait operational, mode switch (essential setup).
+    - exec_prim() wrapper accepts group-indexed PrimitiveArgs for per-group primitives.
+    - Transition keys must be looked up per primitive from Flexiv primitive documentation:
+        https://www.flexiv.com/software/primitives
+    - Reading tcp_pose from each joint group to extract live orientation.
+    - Converting quaternion to Euler ZYX degrees using utility.quat2eulerZYX for MoveL orientation.
+    - ZeroFTSensor is executed for all selected groups with explicit completion checks.
+    - MoveL with optional velocity, zoneRadius blending, and waypoints.
+    - MoveJ with optional waypoints list and jntVelScale.
+    - All JPos calls use 7-element arm-joint list; second (external-axis) argument is optional.
+    - All Coord calls use positional args: (position, orientation_eulerZYX_deg, ref_frame_list).
 """
 
 __copyright__ = "Copyright (C) 2016-2026 Flexiv Ltd. All Rights Reserved."
@@ -36,7 +36,7 @@ import argparse
 import time
 import spdlog  # pip install spdlog
 import flexivrdk  # pip install flexivrdk
-from utility import quat2eulerZYX
+import utility
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -66,37 +66,17 @@ def wait_until_operational(robot, dt=1.0, timeout_s=120.0):
         time.sleep(dt)
 
 
-def wait_primitive_transition(robot, transition_keys_by_group, dt=0.2, timeout_s=300.0):
+def wait_primitive_transition(robot, transition_keys_by_group, dt=0.2, timeout_s=60.0):
     """Block until primitive_states() for all groups satisfy their transition key.
 
     Use the primitive's default transition key unless a custom transition condition
     is intended. Check primitive docs to confirm available primitive state keys.
     """
-    joint_groups = list(transition_keys_by_group.keys())
     t0 = time.time()
     while True:
-        all_primitive_states = robot.primitive_states()
-
-        missing_groups = [
-            group for group in joint_groups if group not in all_primitive_states
-        ]
-        if missing_groups:
-            raise RuntimeError(
-                f"Missing primitive state(s) for group(s): "
-                f"{[flexivrdk.kJointGroupNames[g] for g in missing_groups]}"
-            )
-
-        if all(
-            transition_keys_by_group[group]
-            in all_primitive_states[group].names_and_values
-            for group in joint_groups
-        ) and all(
-            bool(
-                all_primitive_states[group].names_and_values[
-                    transition_keys_by_group[group]
-                ]
-            )
-            for group in joint_groups
+        if utility.primitive_state_true_for_groups(
+            robot.primitive_states(),
+            transition_keys_by_group,
         ):
             return
 
@@ -119,7 +99,7 @@ def exec_prim(robot, primitive_args_by_group, transition_keys_by_group):
             Dict[JointGroup, str] where each value is the transition key for that group.
             This can be the primitive's default key or another primitive state key.
             Look up primitive states from:
-            https://primitive.flexiv.com/primitives/en/3.11/rizon4/index.html
+            https://www.flexiv.com/software/primitives
 
         Note:
         This helper waits on primitive_states() only. If transition depends on
@@ -148,7 +128,7 @@ def prepare_robot(robot_sn, logger):
         logger.info("Fault cleared")
 
     logger.info("Enabling robot")
-    robot.Enable()
+    robot.ServoOn()
     wait_until_operational(robot)
     logger.info("Robot is operational")
 
@@ -160,7 +140,7 @@ def current_euler_zyx_deg(robot, group):
     """Return live TCP orientation of a specific joint group as Euler ZYX [x,y,z] degrees.
 
     tcp_pose layout: [x, y, z, q_w, q_x, q_y, q_z] (SI units, quaternion).
-    quat2eulerZYX() expects [w, x, y, z] order.
+    utility.quat2eulerZYX() expects [w, x, y, z] order.
     The returned Euler values are normalized to the robot's [-180, 180] convention.
     """
     all_states = robot.states()
@@ -171,7 +151,7 @@ def current_euler_zyx_deg(robot, group):
         )
 
     pose = all_states[group].tcp_pose
-    return quat2eulerZYX([pose[3], pose[4], pose[5], pose[6]], degree=True)
+    return utility.quat2eulerZYX([pose[3], pose[4], pose[5], pose[6]], degree=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -183,7 +163,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "robot_sn",
-        help="Serial number of the robot to connect. Remove spaces, e.g. Rizon4s-123456",
+        help="Serial number of the robot to connect. Remove spaces, e.g. Enlight-L-123456",
     )
     args = parser.parse_args()
 
@@ -191,52 +171,35 @@ def main():
 
     try:
         robot = prepare_robot(args.robot_sn, logger)
-        joint_groups = robot.groups()
+        single_arm_groups = robot.info().single_arm_groups
+        if not single_arm_groups:
+            raise RuntimeError("No single-arm joint group found on the connected robot")
 
-        # ── 1) Home ───────────────────────────────────────────────────────────
-        # All Home parameters are optional. Without a target, the robot goes to
-        # the platform-defined home posture. An explicit target joint position
-        # can be passed to customise the joint-space goal.
-        logger.info("Step 1: Home (default target)")
+        # ── 1) Move to home pose ──────────────────────────────────────────────
+        logger.info("Step 1: Move to home pose")
+        robot.Home()
+
+        # ── 2) ZeroFTSensor ───────────────────────────────────────────────────
+        # Use this primitive's documented default transition condition.
+        # The robot must not be in contact with anything during zeroing.
+        logger.info("Step 2: ZeroFTSensor")
+        logger.warn("Zeroing F/T sensors - ensure nothing contacts the robot")
         exec_prim(
             robot,
             {
                 group: flexivrdk.PrimitiveArgs(
-                    "Home",
+                    "ZeroFTSensor",
                     {
-                        "jntVelScale": 20,
-                        "jntAccMultiplier": 1,
+                        "dataCollectTime": 0.2,
+                        "enableStaticCheck": False,
+                        "calibExtraPayload": False,
                     },
                 )
-                for group in joint_groups
+                for group in single_arm_groups
             },
-            {group: "reachedTarget" for group in joint_groups},
+            {group: "terminated" for group in single_arm_groups},
         )
-
-        # ── 2) ZeroFTSensor (if available) ────────────────────────────────────
-        # Use this primitive's documented default transition condition.
-        # The robot must not be in contact with anything during zeroing.
-        if robot.info().has_FT_sensor:
-            logger.info("Step 2: ZeroFTSensor")
-            logger.warn("Zeroing F/T sensors - ensure nothing contacts the robot")
-            exec_prim(
-                robot,
-                {
-                    group: flexivrdk.PrimitiveArgs(
-                        "ZeroFTSensor",
-                        {
-                            "dataCollectTime": 0.2,
-                            "enableStaticCheck": False,
-                            "calibExtraPayload": False,
-                        },
-                    )
-                    for group in joint_groups
-                },
-                {group: "terminated" for group in joint_groups},
-            )
-            logger.info("F/T sensor zeroing complete")
-        else:
-            logger.info("Step 2: Skip ZeroFTSensor (no FT sensor installed)")
+        logger.info("F/T sensor zeroing complete")
 
         # ── 3) MoveJ with waypoints and velocity scaling ──────────────────────
         # target / waypoints: flexivrdk.JPos(q_m) where q_m is 7-element degrees list.
@@ -260,9 +223,9 @@ def main():
                         "jntAccMultiplier": 1,
                     },
                 )
-                for group in joint_groups
+                for group in single_arm_groups
             },
-            {group: "reachedTarget" for group in joint_groups},
+            {group: "reachedTarget" for group in single_arm_groups},
         )
 
         # ── 4) MoveL in WORLD frame with velocity and blending ────────────────
@@ -271,7 +234,7 @@ def main():
         # vel: TCP linear speed in m/s.
         # zoneRadius: blending zone size string, e.g. "Z50". Use "Z0" for exact stops.
         step4_primitive_args_by_group = {}
-        for group in joint_groups:
+        for group in single_arm_groups:
             live_euler = current_euler_zyx_deg(robot, group)
             wp1_euler = normalize_euler_deg(
                 [live_euler[0] + 20.0, live_euler[1] - 20.0, live_euler[2] + 10.0]
@@ -327,7 +290,7 @@ def main():
         exec_prim(
             robot,
             step4_primitive_args_by_group,
-            {group: "reachedTarget" for group in joint_groups},
+            {group: "reachedTarget" for group in single_arm_groups},
         )
 
         # ── 5) MoveL multi-point sweep, exact stops ───────────────────────────
@@ -360,18 +323,14 @@ def main():
                             "enableNullspaceTraj": False,
                         },
                     )
-                    for group in joint_groups
+                    for group in single_arm_groups
                 },
-                {group: "reachedTarget" for group in joint_groups},
+                {group: "reachedTarget" for group in single_arm_groups},
             )
 
         # ── 6) Home before TCP-frame relative move ────────────────────────────
-        logger.info("Step 6: Home")
-        exec_prim(
-            robot,
-            {group: flexivrdk.PrimitiveArgs("Home", {}) for group in joint_groups},
-            {group: "reachedTarget" for group in joint_groups},
-        )
+        logger.info("Step 6: Move to home pose")
+        robot.Home()
 
         # ── 7) MoveL in TCP frame (TRAJ::START) - relative orientation change ─
         # TRAJ::START means both translation and orientation targets are relative
@@ -405,9 +364,9 @@ def main():
                         "enableNullspaceTraj": False,
                     },
                 )
-                for group in joint_groups
+                for group in single_arm_groups
             },
-            {group: "reachedTarget" for group in joint_groups},
+            {group: "reachedTarget" for group in single_arm_groups},
         )
 
         # ── 8) MoveJ to upright posture ───────────────────────────────────────
@@ -427,18 +386,14 @@ def main():
                         "jntAccMultiplier": 1,
                     },
                 )
-                for group in joint_groups
+                for group in single_arm_groups
             },
-            {group: "reachedTarget" for group in joint_groups},
+            {group: "reachedTarget" for group in single_arm_groups},
         )
 
         # ── 9) Home ───────────────────────────────────────────────────────────
-        logger.info("Step 9: Home")
-        exec_prim(
-            robot,
-            {group: flexivrdk.PrimitiveArgs("Home", {}) for group in joint_groups},
-            {group: "reachedTarget" for group in joint_groups},
-        )
+        logger.info("Step 9: Move to home pose")
+        robot.Home()
 
         logger.info("Reference sequence completed successfully")
         robot.Stop()

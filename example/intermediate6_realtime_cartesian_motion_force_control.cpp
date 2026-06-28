@@ -52,7 +52,7 @@ void PrintHelp()
 {
     // clang-format off
     std::cout << "Required arguments: [robot_sn]" << std::endl;
-    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456" << std::endl;
+    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456" << std::endl;
     std::cout << "Optional arguments: [--TCP] [--polish]" << std::endl;
     std::cout << "    --TCP: use TCP frame as reference frame for force control, otherwise use world frame" << std::endl;
     std::cout << "    --polish: run a simple polish motion along XY plane in world frame, otherwise hold robot motion in non-force-control axes"
@@ -122,7 +122,7 @@ int main(int argc, char* argv[])
         PrintHelp();
         return 1;
     }
-    // Serial number of the robot to connect to. Remove any space, for example: Rizon4s-123456
+    // Serial number of the robot to connect to
     std::string robot_sn = argv[1];
 
     // Print description
@@ -167,9 +167,9 @@ int main(int argc, char* argv[])
             spdlog::info("Fault on the connected robot is cleared");
         }
 
-        // Enable the robot, make sure the E-stop is released before enabling
-        spdlog::info("Enabling robot ...");
-        robot.Enable();
+        // Servo on the robot, make sure the E-stop is released
+        spdlog::info("Servo on the robot ...");
+        robot.ServoOn();
 
         // Wait for the robot to become operational
         while (!robot.operational()) {
@@ -179,22 +179,20 @@ int main(int argc, char* argv[])
 
         // Move robot to home pose
         spdlog::info("Moving to home pose");
-        robot.SwitchMode(rdk::Mode::NRT_PLAN_EXECUTION);
-        robot.ExecutePlan("PLAN-Home");
-        // Wait for the plan to finish
-        while (robot.busy()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
+        robot.Home();
 
         // Zero Force-torque Sensor
         // =========================================================================================
-        // All available joint groups of the robot
-        const auto joint_groups = robot.groups();
+        // Direct Cartesian control can only be executed by single-arm joint groups
+        const auto& single_arm_groups = robot.info().single_arm_groups;
+        if (single_arm_groups.empty()) {
+            throw std::runtime_error("No single-arm joint group found on the connected robot");
+        }
 
         robot.SwitchMode(rdk::Mode::NRT_PRIMITIVE_EXECUTION);
         // IMPORTANT: must zero force/torque sensor offset for accurate force/torque measurement
         std::map<rdk::JointGroup, rdk::PrimitiveArgs> pt_args;
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             pt_args[group] = rdk::PrimitiveArgs("ZeroFTSensor", {});
         }
         robot.ExecutePrimitive(pt_args);
@@ -205,10 +203,7 @@ int main(int argc, char* argv[])
             "Zeroing force/torque sensors, make sure nothing is in contact with the robot");
 
         // Wait for primitive to finish
-        while (!std::all_of(joint_groups.begin(), joint_groups.end(), [&robot](const auto& group) {
-            return std::get<int>(
-                robot.primitive_states().at(group).names_and_values.at("terminated"));
-        })) {
+        while (!rdk::utility::PrimitiveStateTrueForGroups(robot.primitive_states(), "terminated")) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         spdlog::info("Sensor zeroing complete");
@@ -222,18 +217,18 @@ int main(int argc, char* argv[])
 
         // Set initial poses to current TCP poses
         std::map<rdk::JointGroup, std::array<double, rdk::kPoseSize>> all_init_pose;
-        for (const auto& [group, states] : robot.states()) {
-            all_init_pose[group] = states.tcp_pose;
-            spdlog::info("[{}] Initial TCP pose [position 3x1, rotation (quaternion) 4x1]: "
-                             + rdk::utility::Arr2Str(all_init_pose.at(group)),
-                rdk::kJointGroupNames.at(group));
+        const auto robot_states = robot.states();
+        for (const auto& [group, _] : single_arm_groups) {
+            all_init_pose[group] = robot_states.at(group).tcp_pose;
+            spdlog::info("[{}] Initial TCP pose [position 3x1, rotation (quaternion) 4x1]: {}",
+                rdk::kJointGroupNames.at(group), rdk::utility::Arr2Str(all_init_pose.at(group)));
         }
 
         // Use non-real-time mode to make the robot go to a set point with its own motion generator
         robot.SwitchMode(rdk::Mode::NRT_CARTESIAN_MOTION_FORCE);
 
         // Search for contact with max contact wrench set to a small value for making soft contact
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             robot.SetMaxContactWrench(group, kMaxWrenchForContactSearch);
         }
 
@@ -276,20 +271,24 @@ int main(int argc, char* argv[])
 
         // Set force control reference frame based on program argument. See function doc for more
         // details
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             robot.SetForceControlFrame(group, force_ctrl_frame);
         }
 
         // Set which Cartesian axis(s) to activate for force control. See function doc for more
         // details. Here we only active Z axis
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             robot.SetForceControlAxis(
                 group, std::array<bool, rdk::kCartDoF> {false, false, true, false, false, false});
         }
 
         // Uncomment the following line to enable passive force control, otherwise active force
         // control is used by default. See function doc for more details
-        /* robot.setPassiveForceControl(true); */
+        /*
+        for (const auto& [group, _] : single_arm_groups) {
+            robot.SetPassiveForceControl(group, true);
+        }
+        */
 
         // NOTE: motion control always uses robot world frame, while force control can use
         // either world or TCP frame as reference frame
@@ -302,7 +301,7 @@ int main(int argc, char* argv[])
         // spike after the max contact wrench regulation for motion control is disabled
         std::array<double, rdk::kCartDoF> inf;
         inf.fill(std::numeric_limits<double>::infinity());
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             robot.SetMaxContactWrench(group, inf);
         }
 

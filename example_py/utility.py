@@ -3,6 +3,9 @@
 """utility.py
 
 Utility methods.
+
+Import this module as `import utility` and use functions through the module namespace,
+for example `utility.quat2eulerZYX(...)` and `utility.primitive_state_true_for_groups(...)`.
 """
 
 __copyright__ = "Copyright (C) 2016-2026 Flexiv Ltd. All Rights Reserved."
@@ -43,6 +46,45 @@ def quat2eulerZYX(quat, degree=False):
     )
 
     return eulerZYX
+
+
+def primitive_state_true_for_groups(primitive_states, state_name):
+    """
+    Check whether primitive states are true for all groups included in primitive_states.
+
+    Parameters
+    ----------
+    primitive_states : dict
+        Primitive states keyed by joint group.
+    state_name : str or dict
+        Primitive state name to check for all groups, or per-group state names keyed by joint
+        group, e.g. "reachedTarget" or {group: "terminated"}.
+
+    Returns
+    ----------
+    bool
+        True if all included groups contain the requested primitive state and its integer value is
+        non-zero.
+    """
+
+    def primitive_state_true(primitive_state, requested_state_name):
+        if requested_state_name not in primitive_state.names_and_values:
+            return False
+
+        value = primitive_state.names_and_values[requested_state_name]
+        return isinstance(value, int) and value != 0
+
+    if isinstance(state_name, dict):
+        return all(
+            group in state_name
+            and primitive_state_true(primitive_state, state_name[group])
+            for group, primitive_state in primitive_states.items()
+        )
+
+    return all(
+        primitive_state_true(primitive_state, state_name)
+        for primitive_state in primitive_states.values()
+    )
 
 
 def list2str(ls):

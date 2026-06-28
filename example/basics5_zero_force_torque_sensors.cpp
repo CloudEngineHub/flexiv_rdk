@@ -21,7 +21,7 @@ void PrintHelp()
 {
     // clang-format off
     std::cout << "Required arguments: [robot_sn]" << std::endl;
-    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456" << std::endl;
+    std::cout << "    robot_sn: Serial number of the robot to connect. Remove any space, e.g. Enlight-L-123456" << std::endl;
     std::cout << "Optional arguments: None" << std::endl;
     std::cout << std::endl;
     // clang-format on
@@ -36,7 +36,7 @@ int main(int argc, char* argv[])
         PrintHelp();
         return 1;
     }
-    // Serial number of the robot to connect to. Remove any space, for example: Rizon4s-123456
+    // Serial number of the robot to connect to
     std::string robot_sn = argv[1];
 
     // Print description
@@ -62,9 +62,9 @@ int main(int argc, char* argv[])
             spdlog::info("Fault on the connected robot is cleared");
         }
 
-        // Enable the robot, make sure the E-stop is released before enabling
-        spdlog::info("Enabling robot ...");
-        robot.Enable();
+        // Servo on the robot, make sure the E-stop is released
+        spdlog::info("Servo on the robot ...");
+        robot.ServoOn();
 
         // Wait for the robot to become operational
         while (!robot.operational()) {
@@ -81,13 +81,16 @@ int main(int argc, char* argv[])
                 rdk::kJointGroupNames.at(group), rdk::utility::Arr2Str(states.tcp_wrench));
         }
 
-        // All available joint groups of the robot
-        const auto joint_groups = robot.groups();
+        // Primitives can only be executed on single-arm joint groups
+        const auto& single_arm_groups = robot.info().single_arm_groups;
+        if (single_arm_groups.empty()) {
+            throw std::runtime_error("No single-arm joint group found on the connected robot");
+        }
 
         // Run the "ZeroFTSensor" primitive to automatically zero force and torque sensors
         robot.SwitchMode(rdk::Mode::NRT_PRIMITIVE_EXECUTION);
         std::map<rdk::JointGroup, rdk::PrimitiveArgs> pt_args;
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             pt_args[group] = rdk::PrimitiveArgs("ZeroFTSensor", {});
         }
         robot.ExecutePrimitive(pt_args);
@@ -98,16 +101,13 @@ int main(int argc, char* argv[])
             "Zeroing force/torque sensors, make sure nothing is in contact with the robot");
 
         // Wait for primitive to finish
-        while (!std::all_of(joint_groups.begin(), joint_groups.end(), [&robot](const auto& group) {
-            return std::get<int>(
-                robot.primitive_states().at(group).names_and_values.at("terminated"));
-        })) {
+        while (!rdk::utility::PrimitiveStateTrueForGroups(robot.primitive_states(), "terminated")) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         spdlog::info("Sensor zeroing complete");
 
         // Get and print the current TCP force/moment readings
-        for (const auto& group : joint_groups) {
+        for (const auto& [group, _] : single_arm_groups) {
             spdlog::info(
                 "[{}] TCP force and moment reading in world frame AFTER sensor zeroing: {} N-Nm",
                 rdk::kJointGroupNames.at(group),
